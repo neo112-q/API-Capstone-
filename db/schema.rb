@@ -10,14 +10,21 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_04_130534) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_06_134717) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
+
+  create_table "chapters", primary_key: ["novel_id", "chapter_no"], force: :cascade do |t|
+    t.integer "chapter_no", null: false
+    t.datetime "created_at", null: false
+    t.integer "novel_id", null: false
+    t.string "title", null: false
+    t.datetime "updated_at", null: false
+  end
 
   create_table "novels", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.string "pen_name"
-    t.string "status"
     t.string "title"
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
@@ -32,5 +39,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_04_130534) do
     t.string "username"
   end
 
+  add_foreign_key "chapters", "novels"
   add_foreign_key "novels", "users"
 end

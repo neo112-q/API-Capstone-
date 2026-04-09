@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  s3-minio:
+    image: minio/minio:latest
+    ports:
+      - "9000:9000" # พอร์ตสำหรับให้ Rails ยิง API ส่งไฟล์มา
+      - "9001:9001" # พอร์ตสำหรับให้เราเปิดเว็บดูไฟล์ได้ (Web UI)
+    environment:
+      # ตั้ง Username / Password รหัสผ่านเข้า S3
+      MINIO_ROOT_USER: "admin_o"
+      MINIO_ROOT_PASSWORD: "password_o123"
+    command: server /data --console-address ":9001"
+    volumes:
+      # สร้างโฟลเดอร์ชื่อ minio_data ในคอมเรา เพื่อเก็บไฟล์ไม่ให้หายตอนปิด Docker
+      - ./minio_data:/data

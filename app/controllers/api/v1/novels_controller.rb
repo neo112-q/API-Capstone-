@@ -1,19 +1,16 @@
 class Api::V1::NovelsController < ::ApplicationController
-  # GET /api/v1/novels
+  # เรียก Token เฉพาะตอน C, U, D
+  before_action(:authorize_request, only: [:create, :update, :destroy])
+
+  # ดูได้ทุกคนนะ
   def index()
-    novels = Novel.all().order(updated_at: :desc)
-    render(json: novels, status: :ok)
+    render(json: Novel.all().order(updated_at: :desc))
   end
 
-  # GET /api/v1/novels/:id
-  def show()
-    novel = Novel.find(params[:id])
-    render(json: novel, status: :ok)
-  end
-
-  # POST /api/v1/novels
+  # สร้างนิยาย ดึง user_id จาก Token อัตโนมัติ
   def create()
-    novel = Novel.new(novel_params())
+    novel = @current_user.novels.build(novel_params())
+    
     if novel.save()
       render(json: novel, status: :created)
     else
@@ -21,27 +18,31 @@ class Api::V1::NovelsController < ::ApplicationController
     end
   end
 
-  # PATCH/PUT /api/v1/novels/:id
+  # แก้ไขข้อมูล แก้ได้เฉพาะนิยายของตัวเองเท่านั้นนะ
   def update()
-    novel = Novel.find(params[:id])
+    novel = @current_user.novels.find(params[:id])
+    
     if novel.update(novel_params())
-      render(json: novel, status: :ok)
+      render(json: novel)
     else
       render(json: { errors: novel.errors.full_messages }, status: :unprocessable_entity)
     end
+  rescue ActiveRecord::RecordNotFound
+    render(json: { error: "You don't have permission to update this novel" }, status: :forbidden)
   end
 
-  # DELETE /api/v1/novels/:id
+  # ลบได้เฉพาะนิยายของตัวเองเท่านั้น
   def destroy()
-    novel = Novel.find(params[:id])
+    novel = @current_user.novels.find(params[:id])
     novel.destroy()
-    render(json: { message: "Novel deleted successfully" }, status: :ok)
+    render(json: { message: "Your novel has been deleted" }, status: :ok)
+  rescue ActiveRecord::RecordNotFound
+    render(json: { error: "You don't have permission to delete this novel" }, status: :forbidden)
   end
-
   private
 
   def novel_params()
     # รับแค่ metadata ไม่ลึก ๆ นะ เพื่อความปลอดภัย
-    params.require(:novel).permit(:title, :pen_name, :status, :user_id)
+    params.require(:novel).permit(:title, :pen_name)
   end
 end

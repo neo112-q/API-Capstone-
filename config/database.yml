@@ -1,13 +1,16 @@
+# config/database.yml
 default: &default
   adapter: postgresql
   encoding: unicode
   pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
   username: postgres
-  password: postgres123
+  password: postgres
   host: localhost
+  port: 5432
 
 development:
   <<: *default
+  # ชื่อ Database
   database: auth_api_development
 
 test:
@@ -17,3 +20,5 @@ test:
 production:
   <<: *default
   database: auth_api_production
+  username: <%= ENV['AUTH_API_DATABASE_USER'] %>
+  password: <%= ENV['AUTH_API_DATABASE_PASSWORD'] %>
