@@ -8,6 +8,10 @@ Rails.application.routes.draw do
         post("sign-up", to: "users#sign_up")
         post("sign-in", to: "users#sign_in")
         delete("delete", to: "users#destroy")
+
+        get("profile", to: "users#profile")
+        patch("profile", to: "users#update_profile")
+        patch("password", to: "users#update_password")
       end
     end
   end
