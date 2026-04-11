@@ -1,10 +1,10 @@
 class Api::V1::UsersController < ApplicationController
-  before_action(:authorize_request, except: [:sign_up, :sign_in, :destroy])
+  # ตั้งด่านตรวจความปลอดภัย และเตรียมระบบ S3
+  before_action(:authorize_request, except: [:sign_up, :sign_in])
   before_action(:set_s3_client, only: [:update_profile])
 
-  def sign_up
+  def sign_up()
     user = User.new(sign_up_params())
-
     if user.save()
       token = JsonWebToken.encode(payload: { user_id: user.id })
       render(json: {
@@ -36,9 +36,8 @@ class Api::V1::UsersController < ApplicationController
     end
   end
 
-  # Rดึงข้อมูลผู้ใช้ไปโชว์ในหน้าตั้งค่า
+  # R ดึงข้อมูลผู้ใช้ไปโชว์ในหน้าตั้งค่า
   def profile
-    # ไม่ส่ง password กลับไปแน่ ๆ อะ 555
     render json: {
       id: @current_user.id,
       email: @current_user.email,
@@ -57,12 +56,9 @@ class Api::V1::UsersController < ApplicationController
       @current_user.avatar_path = avatar_url
     end
 
-    # อัปเดตฟิลด์อื่น ๆ
     @current_user.username = params[:username] if params[:username].present?
     @current_user.pen_name = params[:pen_name] if params[:pen_name].present?
     @current_user.bio = params[:bio] if params[:bio].present?
-    #  เปลี่ยนอีเมล
-    # @current_user.email = params[:email] if params[:email].present?
 
     if @current_user.save
       render json: { message: "อัปเดตโปรไฟล์เรียบร้อย!", user: @current_user.as_json(except: [:password_digest]) }, status: :ok
@@ -71,45 +67,34 @@ class Api::V1::UsersController < ApplicationController
     end
   end
 
-  # [UPDATE] เปลี่ยนรหัสผ่าน (Security UI)
   def update_password
-    # 1. เช็คความปลอดภัย: รหัสผ่านเก่าถูกไหม?
     unless @current_user.authenticate(params[:current_password])
       return render json: { error: "รหัสผ่านปัจจุบันไม่ถูกต้อง" }, status: :unauthorized
     end
 
-    # 2. เช็คว่ารหัสใหม่กับรหัสยืนยันตรงกันไหม?
     if params[:new_password] != params[:password_confirmation]
       return render json: { error: "รหัสผ่านใหม่และการยืนยันไม่ตรงกัน" }, status: :unprocessable_entity
     end
 
-    # 3. เซฟรหัสใหม่
     if @current_user.update(password: params[:new_password])
-      render json: { message: "เปลี่ยนรหัสผ่านสำเร็จ! กรุณาล็อกอินใหม่" }, status: :ok
+      render json: { message: "เปลี่ยนรหัสผ่านสำเร็จ!" }, status: :ok
     else
       render json: { errors: @current_user.errors.full_messages }, status: :unprocessable_entity
     end
   end
 
   def destroy
-    user = User.find_by(email: params[:identifier]&.downcase()) || 
-           User.find_by(username: params[:identifier]&.downcase())
-
-    if user
-      if user.authenticate(params[:password])
-        user.destroy()
-        render(json: { message: "User deleted successfully" }, status: :ok)
-      else
-        render(json: { message: "Invalid password, cannot delete" }, status: :unauthorized)
-      end
+    if @current_user.authenticate(params[:password])
+      @current_user.destroy()
+      render(json: { message: "User deleted successfully" }, status: :ok)
     else
-      render(json: { message: "User not found" }, status: :not_found)
+      render(json: { message: "Invalid password, cannot delete" }, status: :unauthorized)
     end
   end
 
   private
 
-  def sign_up_params()
+  def sign_up_params
     params.require(:user).permit(:email, :username, :password, :password_confirmation)
   end
 
@@ -131,16 +116,9 @@ class Api::V1::UsersController < ApplicationController
     end
 
     object_key = "avatars/#{user.id}.png"
-
-    @s3_client.put_object(
-      bucket: @bucket_name,
-      key: object_key,
-      body: file_content # เผื่อ Base64
-    )
-
+    @s3_client.put_object(bucket: @bucket_name, key: object_key, body: file_content)
     return "/#{@bucket_name}/#{object_key}"
   end
-
 
   def user_as_json(user)
     {
