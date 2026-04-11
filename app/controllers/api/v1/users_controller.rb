@@ -116,8 +116,8 @@ class Api::V1::UsersController < ApplicationController
     end
 
     object_key = "avatars/#{user.id}.png"
-    @s3_client.put_object(bucket: @bucket_name, key: object_key, body: file_content)
-    return "/#{@bucket_name}/#{object_key}"
+    @s3_client.put_object(bucket: @bucket_name, key: object_key, body: file_content.tempfile, content_type: file_content.content_type)
+    return "http://localhost:9000/#{@bucket_name}/#{object_key}"
   end
 
   def user_as_json(user)
