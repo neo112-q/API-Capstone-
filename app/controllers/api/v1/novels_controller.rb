@@ -5,11 +5,10 @@ class Api::V1::NovelsController < ::ApplicationController
   before_action(:set_s3_client, only: [:create, :update, :destroy])
 
   # หมวดหมู่ที่อนุญาตให้เลือกได้
-  ALLOWED_GENRES = [
-    "romance", "comedy", "girl love", "boy love", "fantasy", 
-    "science", "fiction", "mystery", "war", "adventure", 
-    "action", "thriller", "horror"
-  ].freeze
+  def genres_list()
+    all_genres = Genre.pluck(:name)
+    render(json: { genres: all_genres }, status: :ok)
+  end
 
   # ดูได้ทุกคนนะ
   def index()
@@ -102,8 +101,12 @@ class Api::V1::NovelsController < ::ApplicationController
   # ฟังก์ชันกรอง
   def sanitize_genres(genres_array)
     return [] unless genres_array.is_a?(Array)
-    # เก็บเฉพาะหมวดหมู่ที่อยู่ใน ALLOWED_GENRES เท่านั้น ตัวไหนพิมพ์มามั่วๆ โดนเตะทิ้งหมด
-    genres_array.map(&:downcase).select { |g| ALLOWED_GENRES.include?(g) }
+    
+    # ดึงรายชื่อหมวดหมู่จาก DB สด ๆ ร้อน ๆ
+    allowed_from_db = Genre.pluck(:name).map(&:downcase)
+    
+    # กรองเอาเฉพาะอันที่มีใน DB 
+    genres_array.map(&:downcase).select { |g| allowed_from_db.include?(g) }
   end
 
   # ฟังก์ชันสำหรับเตรียม S3
