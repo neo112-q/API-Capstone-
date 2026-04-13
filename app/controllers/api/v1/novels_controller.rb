@@ -9,7 +9,11 @@ class Api::V1::NovelsController < ::ApplicationController
 
   # สร้างนิยาย ดึง user_id จาก Token อัตโนมัติ
   def create()
-    novel = @current_user.novels.build(novel_params())
+    novel = @current_user.novels.build(
+      title: params[:novel][:title],
+      description: params[:novel][:description],
+      pen_name: @current_user.pen_name
+    )
     
     if novel.save()
       render(json: novel, status: :created)
@@ -22,13 +26,30 @@ class Api::V1::NovelsController < ::ApplicationController
   def update()
     novel = @current_user.novels.find(params[:id])
     
-    if novel.update(novel_params())
+    if novel.update(
+      title: params[:novel][:title],
+      description: params[:novel][:description],
+      pen_name: @current_user.pen_name
+    )
       render(json: novel)
     else
       render(json: { errors: novel.errors.full_messages }, status: :unprocessable_entity)
     end
   rescue ActiveRecord::RecordNotFound
     render(json: { error: "You don't have permission to update this novel" }, status: :forbidden)
+  end
+
+  def show()
+    novel = Novel.find(params[:id])
+
+    render(json: {
+      id: novel.id,
+      title: novel.title,
+      pen_name: novel.user.pen_name,
+      description: novel.description
+    }, status: :ok)
+  rescue ActiveRecord::RecordNotFound
+    render(json: { error: "ไม่พบนิยาย" }, status: :not_found)
   end
 
   # ลบได้เฉพาะนิยายของตัวเองเท่านั้น
@@ -43,6 +64,6 @@ class Api::V1::NovelsController < ::ApplicationController
 
   def novel_params()
     # รับแค่ metadata ไม่ลึก ๆ นะ เพื่อความปลอดภัย
-    params.require(:novel).permit(:title, :pen_name)
+    params.require(:novel).permit(:title, :description)
   end
 end

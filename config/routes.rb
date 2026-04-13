@@ -2,7 +2,7 @@ Rails.application.routes.draw do
   namespace(:api) do
     namespace(:v1) do
       resources(:novels) do
-        resources(:chapters, only: [ :index, :create, :update, :destroy ])
+        resources(:chapters, only: [ :index, :create, :update, :destroy, :show ])
       end
       scope(:user) do
         post("sign-up", to: "users#sign_up")
