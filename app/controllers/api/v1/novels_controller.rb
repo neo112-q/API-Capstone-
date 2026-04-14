@@ -12,20 +12,24 @@ class Api::V1::NovelsController < ::ApplicationController
 
   # ดูได้ทุกคนนะ
   def index()
-    render(json: Novel.all().order(updated_at: :desc))
+    render(json: Novel.all().order(updated_at: :desc), include: :genres)
   end
 
   # สร้างนิยาย ดึง user_id จาก Token อัตโนมัติ
   def create()
+    genre_objects = Genre.where(name: sanitize_genres(params[:novel][:genres]))
+    
+    # 🔥 ใช้ pen_name ที่ส่งมาจาก frontend แทนการดึงจาก current_user
+    pen_name = params[:novel][:pen_name].presence || @current_user.username
+    
     novel = @current_user.novels.build(
       title: params[:novel][:title],
       description: params[:novel][:description],
-      pen_name: @current_user.pen_name,
-      genres: sanitize_genres(params[:novel][:genres]) # กรองหมวดหมู่ก่อนบันทึก
+      pen_name: pen_name,  # ใช้ค่าที่ส่งมา
+      genres: genre_objects
     )
     
     if novel.save()
-      # ถ้าเซฟลง DB ผ่านปุ๊บ ค่อยเอารูปปกขึ้น S3
       if params[:cover_content].present?
         cover_url = upload_cover_to_s3(novel, params[:cover_content])
         novel.update_columns(cover_path: cover_url)
@@ -45,22 +49,32 @@ class Api::V1::NovelsController < ::ApplicationController
     novel.title = params[:novel][:title] if params[:novel][:title].present?
     novel.description = params[:novel][:description] if params[:novel][:description].present?
     
-    if params[:novel][:genres].present?
-      novel.genres = sanitize_genres(params[:novel][:genres])
-    end
     
+    if params[:novel][:genres]
+      novel.genres = Genre.where(name: params[:novel][:genres])
+    end
+
     # ถ้ามีการส่งรูปปกใหม่มา โยนทับไฟล์เดิมได้เลย
     if params[:cover_content].present?
       novel.cover_path = upload_cover_to_s3(novel, params[:cover_content])
     end
 
+    if params[:novel][:genres]
+      update_genres(novel, params[:novel][:genres])
+    end
+
     if novel.save()
-      render(json: novel)
+      render(json: novel, include: :genres)
     else
       render(json: { errors: novel.errors.full_messages }, status: :unprocessable_entity)
     end
   rescue ActiveRecord::RecordNotFound
     render(json: { error: "You don't have permission to update this novel" }, status: :forbidden)
+  end
+
+  def update_genres(novel, genre_names)
+    genres = Genre.where(name: genre_names)
+    novel.genres = genres
   end
 
   def show()
@@ -95,7 +109,7 @@ class Api::V1::NovelsController < ::ApplicationController
 
   def novel_params()
     # รับแค่ metadata ไม่ลึก ๆ นะ เพื่อความปลอดภัย
-    params.require(:novel).permit(:title, :description, genres: [])
+    params.require(:novel).permit(:title, :description, :cover_path)
   end
 
   # ฟังก์ชันกรอง
@@ -122,22 +136,27 @@ class Api::V1::NovelsController < ::ApplicationController
   end
 
   # โหลดรูปปกขึ้น S3
+  require 'base64'
+
   def upload_cover_to_s3(novel, file_content)
     begin
       @s3_client.create_bucket(bucket: @bucket_name)
     rescue Aws::S3::Errors::BucketAlreadyOwnedByYou, Aws::S3::Errors::BucketAlreadyExists
     end
 
-    # ตั้งชื่อไฟล์รูปปกเป็น /covers/novel_id.png
     object_key = "covers/#{novel.id}.png"
+
+    decoded_image = Base64.decode64(file_content)
 
     @s3_client.put_object(
       bucket: @bucket_name,
       key: object_key,
-      body: file_content
+      body: decoded_image,
+      content_type: "image/png",   # 🔥 ตัวนี้แหละ
+      content_disposition: "inline" # 🔥 บังคับให้แสดง ไม่โหลด
     )
 
-    return "/#{@bucket_name}/#{object_key}"
+    return "http://localhost:9000/#{@bucket_name}/#{object_key}"
   end
 
   # ลบรูปปกใน S3 ทิ้ง
