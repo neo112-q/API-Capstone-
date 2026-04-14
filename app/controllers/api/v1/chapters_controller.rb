@@ -60,6 +60,18 @@ class Api::V1::ChaptersController < ::ApplicationController
     render(json: { error: "หานิยายไม่เจอ หรือไม่พบตอนที่ต้องการแก้ไข" }, status: :not_found)
   end
 
+  def show()
+    novel = Novel.find(params[:novel_id])
+    chapter = novel.chapters.find_by!(chapter_no: params[:id])
+    object_key = "novel/#{novel.user_id}/#{novel.id}/#{chapter.chapter_no}.txt"
+    content = @s3_client.get_object( bucket: @bucket_name, key: object_key ).body.read
+    render(json: { chapter: chapter, content: content }, status: :ok)
+  rescue ActiveRecord::RecordNotFound
+    render(json: { error: "หานิยายหรือไม่พบตอนที่ระบุ" }, status: :not_found)
+  rescue Aws::S3::Errors::NoSuchKey
+    render(json: { error: "ไม่พบไฟล์เนื้อหาใน S3" }, status: :not_found)
+  end
+
   # ลบและขยับที่เหลือขึ้นมา
   def destroy
     novel = @current_user.novels.find(params[:novel_id])

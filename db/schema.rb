@@ -10,9 +10,37 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_06_134717) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_14_064728) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
+
+  create_table "active_storage_attachments", force: :cascade do |t|
+    t.bigint "blob_id", null: false
+    t.datetime "created_at", null: false
+    t.string "name", null: false
+    t.bigint "record_id", null: false
+    t.string "record_type", null: false
+    t.index ["blob_id"], name: "index_active_storage_attachments_on_blob_id"
+    t.index ["record_type", "record_id", "name", "blob_id"], name: "index_active_storage_attachments_uniqueness", unique: true
+  end
+
+  create_table "active_storage_blobs", force: :cascade do |t|
+    t.bigint "byte_size", null: false
+    t.string "checksum"
+    t.string "content_type"
+    t.datetime "created_at", null: false
+    t.string "filename", null: false
+    t.string "key", null: false
+    t.text "metadata"
+    t.string "service_name", null: false
+    t.index ["key"], name: "index_active_storage_blobs_on_key", unique: true
+  end
+
+  create_table "active_storage_variant_records", force: :cascade do |t|
+    t.bigint "blob_id", null: false
+    t.string "variation_digest", null: false
+    t.index ["blob_id", "variation_digest"], name: "index_active_storage_variant_records_uniqueness", unique: true
+  end
 
   create_table "chapters", primary_key: ["novel_id", "chapter_no"], force: :cascade do |t|
     t.integer "chapter_no", null: false
@@ -22,8 +50,25 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_06_134717) do
     t.datetime "updated_at", null: false
   end
 
-  create_table "novels", force: :cascade do |t|
+  create_table "genres", force: :cascade do |t|
     t.datetime "created_at", null: false
+    t.string "name"
+    t.datetime "updated_at", null: false
+  end
+
+  create_table "novel_genres", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.bigint "genre_id", null: false
+    t.bigint "novel_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["genre_id"], name: "index_novel_genres_on_genre_id"
+    t.index ["novel_id"], name: "index_novel_genres_on_novel_id"
+  end
+
+  create_table "novels", force: :cascade do |t|
+    t.string "cover_path"
+    t.datetime "created_at", null: false
+    t.text "description"
     t.string "pen_name"
     t.string "title"
     t.datetime "updated_at", null: false
@@ -32,13 +77,20 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_06_134717) do
   end
 
   create_table "users", force: :cascade do |t|
+    t.string "avatar_path"
+    t.text "bio"
     t.datetime "created_at", null: false
     t.string "email"
     t.string "password_digest"
+    t.string "pen_name"
     t.datetime "updated_at", null: false
     t.string "username"
   end
 
+  add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
+  add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
   add_foreign_key "chapters", "novels"
+  add_foreign_key "novel_genres", "genres"
+  add_foreign_key "novel_genres", "novels"
   add_foreign_key "novels", "users"
 end
