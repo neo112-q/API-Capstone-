@@ -4,6 +4,7 @@ Rails.application.routes.draw do
       
       resources(:novels) do
         collection do
+          get("my_novels", to: "novels#my_novels")
           get("genres", to: "novels#genres_list")
         end
         
