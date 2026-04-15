@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_14_064728) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_15_123738) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -46,6 +46,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_14_064728) do
     t.integer "chapter_no", null: false
     t.datetime "created_at", null: false
     t.integer "novel_id", null: false
+    t.integer "price", default: 0
     t.string "title", null: false
     t.datetime "updated_at", null: false
   end
@@ -69,6 +70,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_14_064728) do
     t.string "cover_path"
     t.datetime "created_at", null: false
     t.text "description"
+    t.boolean "is_premium", default: false
     t.string "pen_name"
     t.string "title"
     t.datetime "updated_at", null: false
@@ -79,10 +81,12 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_14_064728) do
   create_table "users", force: :cascade do |t|
     t.string "avatar_path"
     t.text "bio"
+    t.integer "coin_balance", default: 0
     t.datetime "created_at", null: false
     t.string "email"
     t.string "password_digest"
     t.string "pen_name"
+    t.string "stripe_customer_id"
     t.datetime "updated_at", null: false
     t.string "username"
   end

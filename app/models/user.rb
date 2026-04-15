@@ -4,4 +4,8 @@ class User < ApplicationRecord
   has_one_attached(:avatar)
   validates(:email, presence: true, uniqueness: true)
   validates(:username, presence: true, uniqueness: true)
+
+  has_many(:follows, dependent: :destroy)
+  has_many(:followed_novels, through: :follows, source: :novel)
+  has_many(:unlocked_chapters, dependent: :destroy)
 end

@@ -60,16 +60,55 @@ class Api::V1::ChaptersController < ::ApplicationController
     render(json: { error: "หานิยายไม่เจอ หรือไม่พบตอนที่ต้องการแก้ไข" }, status: :not_found)
   end
 
+  # ถ้าติดเหรียญต้องเช็คก่อน
   def show()
     novel = Novel.find(params[:novel_id])
     chapter = novel.chapters.find_by!(chapter_no: params[:id])
-    object_key = "novel/#{novel.user_id}/#{novel.id}/#{chapter.chapter_no}.txt"
-    content = @s3_client.get_object( bucket: @bucket_name, key: object_key ).body.read
-    render(json: { chapter: chapter, content: content }, status: :ok)
-  rescue ActiveRecord::RecordNotFound
-    render(json: { error: "หานิยายหรือไม่พบตอนที่ระบุ" }, status: :not_found)
-  rescue Aws::S3::Errors::NoSuchKey
-    render(json: { error: "ไม่พบไฟล์เนื้อหาใน S3" }, status: :not_found)
+    
+    is_owner = (novel.user_id == @current_user.id)
+    is_free = (!novel.is_premium || chapter.price == 0)
+    has_unlocked = UnlockedChapter.exists?(user: @current_user, chapter: chapter)
+
+    # ดักคนเนียนอ่านฟรี eiei
+    if !is_owner && !is_free && !has_unlocked
+      return render(json: { 
+        message: "ตอนนี้ติดเหรียญ กรุณาปลดล็อค", 
+        locked: true,
+        price: chapter.price 
+      }, status: :payment_required)
+    end
+
+    # ดึงไฟล์จาก S3 
+    render(json: { chapter: chapter, locked: false }, status: :ok)
+  end
+
+  # Pessimistic Locking
+  def unlock()
+    novel = Novel.find(params[:novel_id])
+    chapter = novel.chapters.find_by!(chapter_no: params[:id])
+
+    return render(json: { error: "ตอนนี้อ่านฟรี!" }, status: :bad_request) if !novel.is_premium || chapter.price == 0
+    return render(json: { error: "คุณปลดล็อคแล้ว!" }, status: :bad_request) if UnlockedChapter.exists?(user: @current_user, chapter: chapter)
+
+    # ล็อคเงิน User ไม่ให้คนกดย้ำ ๆ เพื่อปั๊มยอดได้
+    ActiveRecord::Base.transaction do
+      @current_user.lock!() 
+
+      if @current_user.coin_balance >= chapter.price
+        @current_user.coin_balance -= chapter.price
+        @current_user.save!()
+
+        UnlockedChapter.create!(user: @current_user, chapter: chapter, price_paid: chapter.price)
+      else
+        raise ActiveRecord::Rollback # เงินไม่พอ สั่งตีกลับทั้งหมด
+      end
+    end
+
+    if UnlockedChapter.exists?(user: @current_user, chapter: chapter)
+      render(json: { message: "ปลดล็อคสำเร็จ!", balance: @current_user.coin_balance }, status: :ok)
+    else
+      render(json: { error: "เหรียญไม่พอ กรุณาเติมเงิน" }, status: :payment_required)
+    end
   end
 
   # ลบและขยับที่เหลือขึ้นมา

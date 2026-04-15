@@ -44,7 +44,8 @@ class Api::V1::UsersController < ApplicationController
       username: @current_user.username,
       pen_name: @current_user.pen_name,
       bio: @current_user.bio,
-      avatar_path: @current_user.avatar_path
+      avatar_path: @current_user.avatar_path,
+      coin_balance: @current_user.coin_balance
     }, status: :ok
   end
 

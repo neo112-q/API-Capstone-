@@ -1,6 +1,8 @@
 require "active_support/core_ext/integer/time"
 
 Rails.application.configure do
+  # อนุญาตให้ host จาก Docker วิ่งเข้าหา Rails ได้
+  config.hosts << "host.docker.internal"
   # Settings specified here will take precedence over those in config/application.rb.
 
   # Make code changes take effect immediately without server restart.

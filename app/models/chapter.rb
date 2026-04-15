@@ -8,6 +8,8 @@ class Chapter < ApplicationRecord
   # เช็คลำดับก่อนสร้างได้ด้วย
   validate(:must_be_sequential, on: :create)
 
+  has_many(:unlocked_chapters, dependent: :destroy)
+
   private
 
   def must_be_sequential()

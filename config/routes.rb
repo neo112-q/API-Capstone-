@@ -5,9 +5,19 @@ Rails.application.routes.draw do
       resources(:novels) do
         collection do
           get("genres", to: "novels#genres_list")
+          get("following", to: "follows#index")
         end
         
-        resources(:chapters, only: [ :index, :create, :update, :destroy, :show ])
+        member do
+          post("follow", to: "follows#create")
+          delete("unfollow", to: "follows#destroy")
+        end
+
+        resources(:chapters, only: [:index, :create, :update, :destroy, :show]) do
+          member do
+            post("unlock", to: "chapters#unlock")
+          end
+        end
       end
       
       scope(:user) do
@@ -18,7 +28,11 @@ Rails.application.routes.draw do
         get("profile", to: "users#profile")
         patch("profile", to: "users#update_profile")
         patch("password", to: "users#update_password")
+        
+        post("topup/intent", to: "payments#create_intent")
       end
+      
+      post("webhooks/stripe", to: "payments#stripe_webhook")
       
     end
   end

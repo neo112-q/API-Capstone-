@@ -9,6 +9,9 @@ class Novel < ApplicationRecord
   validates(:pen_name, presence: true)
   # ล็อคไม่ให้เปลี่ยนเจ้าของนิยายตอนอัปเดตตามนั้น
   validate(:readonly_user_id, on: :update)
+  
+  has_many(:follows, dependent: :destroy)
+  has_many(:followers, through: :follows, source: :user)
 
   private
 
