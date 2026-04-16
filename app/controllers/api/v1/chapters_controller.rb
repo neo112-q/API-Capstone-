@@ -82,15 +82,12 @@ class Api::V1::ChaptersController < ::ApplicationController
   def show()
     novel = Novel.find(params[:novel_id])
     chapter = novel.chapters.find_by!(chapter_no: params[:id])
-    
-    is_owner = (novel.user_id == @current_user.id)
+    is_owner = @current_user ? (novel.user_id == @current_user.id) : false
     is_free = (!novel.is_premium || chapter.price == 0)
-    has_unlocked = UnlockedChapter.exists?(user: @current_user, chapter: chapter)
-
-    chapter = Chapter.find(params[:id])
+    has_unlocked = @current_user ? UnlockedChapter.exists?(user: @current_user, chapter: chapter) : false
     chapter.increment!(:view_count)
     chapter.novel.increment!(:view_count)
-    # ดักคนเนียนอ่านฟรี eiei
+
     if !is_owner && !is_free && !has_unlocked
       return render(json: { 
         message: "ตอนนี้ติดเหรียญ กรุณาปลดล็อค", 
@@ -99,7 +96,7 @@ class Api::V1::ChaptersController < ::ApplicationController
       }, status: :payment_required)
     end
 
-    # ดึงไฟล์จาก S3 
+  # ดึงข้อมูลมาแสดง
     render(json: { chapter: chapter, locked: false }, status: :ok)
   end
 
