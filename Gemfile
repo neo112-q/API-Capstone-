@@ -17,6 +17,9 @@ gem "jwt"
 gem "fiddle"
 gem "aws-sdk-s3"
 gem "stripe"
+# Gemfile
+gem "neighbor"
+gem "pgvector"
 
 # Windows does not include zoneinfo files, so bundle the tzinfo-data gem
 gem "tzinfo-data", platforms: %i[ windows jruby ]

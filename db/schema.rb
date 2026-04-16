@@ -10,9 +10,10 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_15_123738) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_15_162427) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
+  enable_extension "vector"
 
   create_table "active_storage_attachments", force: :cascade do |t|
     t.bigint "blob_id", null: false
@@ -66,6 +67,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_15_123738) do
     t.index ["novel_id"], name: "index_novel_genres_on_novel_id"
   end
 
+# Could not dump table "novel_tfidf_vectors" because of following StandardError
+#   Unknown type 'halfvec(300)' for column 'tf_idf'
+
+
   create_table "novels", force: :cascade do |t|
     t.string "cover_path"
     t.datetime "created_at", null: false
@@ -96,5 +101,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_15_123738) do
   add_foreign_key "chapters", "novels"
   add_foreign_key "novel_genres", "genres"
   add_foreign_key "novel_genres", "novels"
+  add_foreign_key "novel_tfidf_vectors", "novels", on_delete: :cascade
   add_foreign_key "novels", "users"
 end
