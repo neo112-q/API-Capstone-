@@ -1,13 +1,31 @@
 class Api::V1::ChaptersController < ::ApplicationController
   # บังคับว่าต้องมี Token นะ
-  before_action(:authorize_request)
+  before_action(:authorize_request, except: [:index, :show])
   # เตรียมเชื่อมต่อ S3 รอไว้เลย จะได้เรียกใช้ได้ทั้งตอน C และ D
   before_action(:set_s3_client)
 
   # ดูรายชื่อตอนทั้งหมดของนิยาย
   def index
     novel = Novel.find(params[:novel_id])
-    render(json: novel.chapters.order(:chapter_no))
+    chapters = novel.chapters.order(:chapter_no)
+    
+    result = chapters.map do |ch|
+      object_key = "novel/#{novel.user_id}/#{novel.id}/#{ch.chapter_no}.txt"
+      
+      begin
+        content = @s3_client.get_object(bucket: @bucket_name, key: object_key).body.read
+      rescue Aws::S3::Errors::NoSuchKey
+        content = ""
+      end
+      {
+        id: ch.id,
+        chapter_no: ch.chapter_no,
+        title: ch.title,
+        content: content
+      }
+    end
+  
+    render(json: result)
   rescue ActiveRecord::RecordNotFound
     render(json: { error: "หานิยายไม่เจอ" }, status: :not_found)
   end

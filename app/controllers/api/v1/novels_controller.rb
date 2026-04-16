@@ -1,6 +1,6 @@
 class Api::V1::NovelsController < ::ApplicationController
   # เรียก Token เฉพาะตอน C, U, D
-  before_action(:authorize_request, only: [:create, :update, :destroy])
+  before_action(:authorize_request, only: [:create, :update, :destroy, :my_novels])
   # เตรียมเชื่อม S3 รอไว้เลย จะได้เรียกใช้จัดการรูปปก
   before_action(:set_s3_client, only: [:create, :update, :destroy])
 
@@ -83,13 +83,23 @@ class Api::V1::NovelsController < ::ApplicationController
     render(json: {
       id: novel.id,
       title: novel.title,
-      pen_name: novel.user.pen_name,
+      pen_name: novel.pen_name,
       description: novel.description,
       genres: novel.genres, # ส่งหมวดหมู่กลับไปโชว์ด้วย
       cover_path: novel.cover_path # ส่งที่อยู่รูปปกกลับไปโชว์ด้วย
     }, status: :ok)
   rescue ActiveRecord::RecordNotFound
     render(json: { error: "ไม่พบนิยาย" }, status: :not_found)
+  end
+
+  def my_novels()
+    begin
+      novels = @current_user.novels.order(updated_at: :desc)
+      render(json: novels.as_json(include: { genres: { only: [:id, :name] } }), status: :ok)
+    rescue => e
+      puts "Error in my_novels: #{e.message}"
+      render(json: { error: e.message }, status: :internal_server_error)
+    end
   end
 
   # ลบได้เฉพาะนิยายของตัวเองเท่านั้น
