@@ -12,6 +12,10 @@ class Novel < ApplicationRecord
   
   has_many(:follows, dependent: :destroy)
   has_many(:followers, through: :follows, source: :user)
+  enum(:status, { draft: 0, published: 1, writing: 2 })
+
+  has_many(:likes, as: :likeable, dependent: :destroy)
+  has_many(:purchases, dependent: :destroy)
 
   private
 

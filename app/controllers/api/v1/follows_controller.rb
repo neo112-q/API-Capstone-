@@ -3,7 +3,7 @@ class Api::V1::FollowsController < ::ApplicationController
 
   # C กดติดตาม
   def create()
-    novel = Novel.find(params[:novel_id])
+    novel = Novel.find(params[:id]) 
     follow = @current_user.follows.find_or_create_by(novel: novel)
     render(json: { message: "ติดตามแล้ว", follow: follow }, status: :created)
   end
@@ -13,11 +13,9 @@ class Api::V1::FollowsController < ::ApplicationController
     render(json: { followed_novels: @current_user.followed_novels }, status: :ok)
   end
 
-  
-
   # D เลิกติดตาม
   def destroy()
-    follow = @current_user.follows.find_by!(novel_id: params[:novel_id])
+    follow = @current_user.follows.find_by!(novel_id: params[:id]) 
     follow.destroy()
     render(json: { message: "เลิกติดตามแล้ว" }, status: :ok)
   end

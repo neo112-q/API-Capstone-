@@ -87,6 +87,9 @@ class Api::V1::ChaptersController < ::ApplicationController
     is_free = (!novel.is_premium || chapter.price == 0)
     has_unlocked = UnlockedChapter.exists?(user: @current_user, chapter: chapter)
 
+    chapter = Chapter.find(params[:id])
+    chapter.increment!(:view_count)
+    chapter.novel.increment!(:view_count)
     # ดักคนเนียนอ่านฟรี eiei
     if !is_owner && !is_free && !has_unlocked
       return render(json: { 

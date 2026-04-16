@@ -8,4 +8,7 @@ class User < ApplicationRecord
   has_many(:follows, dependent: :destroy)
   has_many(:followed_novels, through: :follows, source: :novel)
   has_many(:unlocked_chapters, dependent: :destroy)
+
+  has_many(:likes, dependent: :destroy)
+  has_many(:purchases, dependent: :destroy)
 end

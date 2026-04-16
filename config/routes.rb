@@ -14,7 +14,11 @@ Rails.application.routes.draw do
           delete("unfollow", to: "follows#destroy")
         end
 
+        post("toggle_like", to: "likes#toggle")
+        post("purchase", to: "purchases#create")
+
         resources(:chapters, only: [:index, :create, :update, :destroy, :show]) do
+          post("toggle_like", to: "likes#toggle")
           member do
             post("unlock", to: "chapters#unlock")
           end

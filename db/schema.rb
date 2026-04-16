@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_15_162427) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_16_135635) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "vector"
@@ -50,12 +50,34 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_15_162427) do
     t.integer "price", default: 0
     t.string "title", null: false
     t.datetime "updated_at", null: false
+    t.integer "view_count", default: 0
+  end
+
+  create_table "follows", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.bigint "novel_id", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["novel_id"], name: "index_follows_on_novel_id"
+    t.index ["user_id", "novel_id"], name: "index_follows_on_user_id_and_novel_id", unique: true
+    t.index ["user_id"], name: "index_follows_on_user_id"
   end
 
   create_table "genres", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.string "name"
     t.datetime "updated_at", null: false
+  end
+
+  create_table "likes", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.bigint "likeable_id", null: false
+    t.string "likeable_type", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["likeable_type", "likeable_id"], name: "index_likes_on_likeable"
+    t.index ["user_id", "likeable_id", "likeable_type"], name: "index_likes_on_user_id_and_likeable_id_and_likeable_type", unique: true
+    t.index ["user_id"], name: "index_likes_on_user_id"
   end
 
   create_table "novel_genres", force: :cascade do |t|
@@ -67,9 +89,15 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_15_162427) do
     t.index ["novel_id"], name: "index_novel_genres_on_novel_id"
   end
 
-# Could not dump table "novel_tfidf_vectors" because of following StandardError
-#   Unknown type 'halfvec(300)' for column 'tf_idf'
-
+  create_table "novel_tfidf_vectors", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.bigint "novel_id", null: false
+    t.integer "partition_no", null: false
+    t.halfvec "tf_idf", limit: 300, null: false
+    t.datetime "updated_at", null: false
+    t.index ["novel_id"], name: "index_novel_tfidf_vectors_on_novel_id"
+    t.index ["tf_idf"], name: "index_novel_tfidf_vectors_on_tf_idf", opclass: :halfvec_cosine_ops, using: :hnsw
+  end
 
   create_table "novels", force: :cascade do |t|
     t.string "cover_path"
@@ -77,10 +105,36 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_15_162427) do
     t.text "description"
     t.boolean "is_premium", default: false
     t.string "pen_name"
+    t.decimal "price", precision: 10, scale: 2, default: "0.0"
+    t.integer "status", default: 0
     t.string "title"
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
+    t.integer "view_count", default: 0
     t.index ["user_id"], name: "index_novels_on_user_id"
+  end
+
+  create_table "purchases", force: :cascade do |t|
+    t.decimal "author_revenue", precision: 10, scale: 2, null: false
+    t.datetime "created_at", null: false
+    t.bigint "novel_id", null: false
+    t.decimal "platform_fee", precision: 10, scale: 2, null: false
+    t.decimal "price", precision: 10, scale: 2, null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["novel_id"], name: "index_purchases_on_novel_id"
+    t.index ["user_id"], name: "index_purchases_on_user_id"
+  end
+
+  create_table "unlocked_chapters", force: :cascade do |t|
+    t.bigint "chapter_id", null: false
+    t.datetime "created_at", null: false
+    t.decimal "price_paid", precision: 10, scale: 2, default: "0.0"
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["chapter_id"], name: "index_unlocked_chapters_on_chapter_id"
+    t.index ["user_id", "chapter_id"], name: "index_unlocked_chapters_on_user_id_and_chapter_id", unique: true
+    t.index ["user_id"], name: "index_unlocked_chapters_on_user_id"
   end
 
   create_table "users", force: :cascade do |t|
@@ -99,8 +153,14 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_15_162427) do
   add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
   add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
   add_foreign_key "chapters", "novels"
+  add_foreign_key "follows", "novels"
+  add_foreign_key "follows", "users"
+  add_foreign_key "likes", "users"
   add_foreign_key "novel_genres", "genres"
   add_foreign_key "novel_genres", "novels"
   add_foreign_key "novel_tfidf_vectors", "novels", on_delete: :cascade
   add_foreign_key "novels", "users"
+  add_foreign_key "purchases", "novels"
+  add_foreign_key "purchases", "users"
+  add_foreign_key "unlocked_chapters", "users"
 end

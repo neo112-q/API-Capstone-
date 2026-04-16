@@ -9,11 +9,11 @@ class Chapter < ApplicationRecord
   validate(:must_be_sequential, on: :create)
 
   has_many(:unlocked_chapters, dependent: :destroy)
-
+  has_many(:likes, as: :likeable, dependent: :destroy)
   private
 
   def must_be_sequential()
-    # นับว่าตอนนี้นิยายเรื่องนี้มีกี่ตอนแล้วนะ
+    # นับว่าตอนนี้นิยายเรื่องนี้มีกี่ตอนแล้วน  ะ
     last_no = novel.chapters.count()
     # ถ้าจะสร้างตอนใหม่ เลขตอนต้องเท่ากับ (จำนวนตอนเดิม + 1) เท่านั้น เพื่อจะได้ไม่มีปัญหานะ
     if chapter_no != last_no + 1
