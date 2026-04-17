@@ -1,5 +1,5 @@
 class Chapter < ApplicationRecord
-  self.primary_key = [:novel_id, :chapter_no]
+  self.primary_key = [ :novel_id, :chapter_no ]
   belongs_to(:novel)
 
   validates(:chapter_no, presence: true, numericality: { only_integer: true, greater_than: 0 })
@@ -10,12 +10,13 @@ class Chapter < ApplicationRecord
 
   has_many(:unlocked_chapters, dependent: :destroy)
   has_many(:likes, as: :likeable, dependent: :destroy)
+  has_many(:reading_histories, dependent: :destroy)
   private
 
-  def must_be_sequential()
-    # นับว่าตอนนี้นิยายเรื่องนี้มีกี่ตอนแล้วน  ะ
+  def must_be_sequential
+    # นับว่าตอนนี้นิยายเรื่องนี้มีกี่ตอนแล้วนะ
     last_no = novel.chapters.count()
-    # ถ้าจะสร้างตอนใหม่ เลขตอนต้องเท่ากับ (จำนวนตอนเดิม + 1) เท่านั้น เพื่อจะได้ไม่มีปัญหานะ
+    # จำนวนตอนเดิม + 1
     if chapter_no != last_no + 1
       errors.add(:chapter_no, "ต้องเป็นตอนที่ #{last_no + 1} เท่านั้น (ห้ามข้ามตอน)")
     end

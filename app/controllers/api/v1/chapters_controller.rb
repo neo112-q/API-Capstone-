@@ -1,6 +1,8 @@
 class Api::V1::ChaptersController < ::ApplicationController
   # บังคับว่าต้องมี Token นะ
-  before_action(:authorize_request, except: [:index, :show])
+  before_action(:authorize_request, except: [ :index, :show ])
+
+  before_action(:set_optional_user, only: [ :show ])
   # เตรียมเชื่อมต่อ S3 รอไว้เลย จะได้เรียกใช้ได้ทั้งตอน C และ D
   before_action(:set_s3_client)
 
@@ -8,14 +10,14 @@ class Api::V1::ChaptersController < ::ApplicationController
   def index
     novel = Novel.find(params[:novel_id])
     chapters = novel.chapters.order(:chapter_no)
-    
+
     result = chapters.map do |ch|
       object_key = "novel/#{novel.user_id}/#{novel.id}/#{ch.chapter_no}.txt"
-      
+
       begin
         content = @s3_client.get_object(bucket: @bucket_name, key: object_key).body.read
       rescue Aws::S3::Errors::NoSuchKey
-        content = ""
+        content = "เนื้อหาว่างเปล่า"
       end
       {
         id: ch.id,
@@ -24,7 +26,7 @@ class Api::V1::ChaptersController < ::ApplicationController
         content: content
       }
     end
-  
+
     render(json: result)
   rescue ActiveRecord::RecordNotFound
     render(json: { error: "หานิยายไม่เจอ" }, status: :not_found)
@@ -79,7 +81,7 @@ class Api::V1::ChaptersController < ::ApplicationController
   end
 
   # ถ้าติดเหรียญต้องเช็คก่อน
-  def show()
+  def show
     novel = Novel.find(params[:novel_id])
     chapter = novel.chapters.find_by!(chapter_no: params[:id])
     is_owner = @current_user ? (novel.user_id == @current_user.id) : false
@@ -88,20 +90,35 @@ class Api::V1::ChaptersController < ::ApplicationController
     chapter.increment!(:view_count)
     chapter.novel.increment!(:view_count)
 
+    # ดักคนเนียน
     if !is_owner && !is_free && !has_unlocked
-      return render(json: { 
-        message: "ตอนนี้ติดเหรียญ กรุณาปลดล็อค", 
+      return render(json: {
+        message: "ตอนนี้ติดเหรียญ กรุณาปลดล็อค",
         locked: true,
-        price: chapter.price 
+        price: chapter.price
       }, status: :payment_required)
     end
 
-  # ดึงข้อมูลมาแสดง
-    render(json: { chapter: chapter, locked: false }, status: :ok)
+    object_key = "novel/#{novel.user_id}/#{novel.id}/#{chapter.chapter_no}.txt"
+    begin
+      content = @s3_client.get_object(bucket: @bucket_name, key: object_key).body.read
+    rescue Aws::S3::Errors::NoSuchKey
+      content = "ไม่พบเนื้อหาในไฟล์ S3"
+    end
+
+    # บันทึกประวัติการอ่าน
+    if @current_user
+      history = @current_user.reading_histories.find_or_initialize_by(novel_id: novel.id)
+      history.chapter_no = chapter.chapter_no
+      history.save
+    end
+
+    # ส่ง JSON กลับไปพร้อมเนื้อหา
+    render(json: { chapter: chapter, content: content, locked: false }, status: :ok)
   end
 
   # Pessimistic Locking
-  def unlock()
+  def unlock
     novel = Novel.find(params[:novel_id])
     chapter = novel.chapters.find_by!(chapter_no: params[:id])
 
@@ -110,11 +127,11 @@ class Api::V1::ChaptersController < ::ApplicationController
 
     # ล็อคเงิน User ไม่ให้คนกดย้ำ ๆ เพื่อปั๊มยอดได้
     ActiveRecord::Base.transaction do
-      @current_user.lock!() 
+      @current_user.lock!
 
       if @current_user.coin_balance >= chapter.price
         @current_user.coin_balance -= chapter.price
-        @current_user.save!()
+        @current_user.save!
 
         UnlockedChapter.create!(user: @current_user, chapter: chapter, price_paid: chapter.price)
       else
@@ -132,25 +149,25 @@ class Api::V1::ChaptersController < ::ApplicationController
   # ลบและขยับที่เหลือขึ้นมา
   def destroy
     novel = @current_user.novels.find(params[:novel_id])
-    # ค้นหาตอนที่จะลบ
     chapter_to_delete = novel.chapters.find_by!(chapter_no: params[:id])
     deleted_no = chapter_to_delete.chapter_no
 
     # ลบไฟล์ต้นฉบับใน S3 ก่อน
     delete_from_s3(novel, chapter_to_delete)
-    # ลบออกจาก Database
+
     chapter_to_delete.destroy()
-    # ดึงตอนทั้งหมดที่มีเลขสูงกว่าตอนที่เพิ่งลบทิ้ง เรียงจากน้อยไปมากนะ
+
+    # ดึงตอนที่เหลือมาขยับ
     remaining_chapters = novel.chapters.where("chapter_no > ?", deleted_no).order(:chapter_no)
 
     remaining_chapters.each do |ch|
       old_no = ch.chapter_no
       new_no = old_no - 1
 
-      # เปลี่ยนชื่อไฟล์ใน S3 (ให้เลขไฟล์ขยับตาม)
+      # เปลี่ยนชื่อไฟล์ใน S3
       rename_s3_file(novel, old_no, new_no)
 
-      # อัปเลขตอนใหม่ใน Database
+      # อัปเลขตอนใหม่
       ch.update_columns(chapter_no: new_no)
     end
 
@@ -161,9 +178,31 @@ class Api::V1::ChaptersController < ::ApplicationController
 
   private
 
-  # ฟังก์ชันสำหรับเตรียมท่อ S3
+  def set_optional_user
+    header = request.headers['Authorization']
+    token = header.split(' ').last if header
+
+    if token.present?
+      begin
+        decoded = JsonWebToken.decode(token: token)
+
+        user_id = decoded[:user_id] || decoded["user_id"] 
+        @current_user = User.find(user_id)
+        novel = Novel.find(params[:novel_id])
+        chapter = novel.chapters.find_by!(chapter_no: params[:id])
+        history = @current_user.reading_histories.find_or_initialize_by(novel_id: novel.id)
+        history.chapter_no = chapter.chapter_no
+        history.save
+
+      rescue => e
+        @current_user = nil
+      end
+    else
+      @current_user = nil
+    end
+  end
+
   def set_s3_client
-    # เชื่อมต่อกับ S3 ใน Docker
     @s3_client = Aws::S3::Client.new(
       endpoint: "http://localhost:9000",
       access_key_id: "admin_o",
@@ -174,45 +213,37 @@ class Api::V1::ChaptersController < ::ApplicationController
     @bucket_name = "novels-bucket"
   end
 
-  # โหลด
   def upload_to_s3(novel, chapter, text_content)
     begin
       @s3_client.create_bucket(bucket: @bucket_name)
     rescue Aws::S3::Errors::BucketAlreadyOwnedByYou, Aws::S3::Errors::BucketAlreadyExists
     end
 
-    # /novel/user_id/novel_id/no.txt
-    object_key = "novel/#{@current_user.id}/#{novel.id}/#{chapter.chapter_no}.txt"
+    object_key = "novel/#{novel.user_id}/#{novel.id}/#{chapter.chapter_no}.txt"
 
-    # โยนไฟล์ขึ้น S3
     @s3_client.put_object(
       bucket: @bucket_name,
       key: object_key,
       body: text_content
     )
 
-    # ส่งที่อยู่ไฟล์กลับไปให้ Controller
-    return "/#{@bucket_name}/#{object_key}"
+    "/#{@bucket_name}/#{object_key}"
   end
 
-  # ลบไฟล์ใน S3
   def delete_from_s3(novel, chapter)
-    object_key = "novel/#{@current_user.id}/#{novel.id}/#{chapter.chapter_no}.txt"
+    object_key = "novel/#{novel.user_id}/#{novel.id}/#{chapter.chapter_no}.txt"
     @s3_client.delete_object(bucket: @bucket_name, key: object_key)
   end
 
-  # ฟังก์ชัน ขยับไฟล์ใน S3
   def rename_s3_file(novel, old_no, new_no)
-    old_key = "novel/#{@current_user.id}/#{novel.id}/#{old_no}.txt"
-    new_key = "novel/#{@current_user.id}/#{novel.id}/#{new_no}.txt"
+    old_key = "novel/#{novel.user_id}/#{novel.id}/#{old_no}.txt"
+    new_key = "novel/#{novel.user_id}/#{novel.id}/#{new_no}.txt"
 
-    # ก๊อปไฟล์จากชื่อเดิม ไปสร้างใหม่ด้วยชื่อใหม่
     @s3_client.copy_object(
       bucket: @bucket_name,
       copy_source: "#{@bucket_name}/#{old_key}",
       key: new_key
     )
-    # ลบไฟล์ชื่อเก่าทิ้งไป
     @s3_client.delete_object(bucket: @bucket_name, key: old_key)
   end
 end

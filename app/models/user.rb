@@ -11,4 +11,5 @@ class User < ApplicationRecord
 
   has_many(:likes, dependent: :destroy)
   has_many(:purchases, dependent: :destroy)
+  has_many(:reading_histories, dependent: :destroy)
 end

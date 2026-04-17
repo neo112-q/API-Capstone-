@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_16_135635) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_17_123608) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "vector"
@@ -126,6 +126,17 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_16_135635) do
     t.index ["user_id"], name: "index_purchases_on_user_id"
   end
 
+  create_table "reading_histories", force: :cascade do |t|
+    t.integer "chapter_no", null: false
+    t.datetime "created_at", null: false
+    t.bigint "novel_id", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["novel_id"], name: "index_reading_histories_on_novel_id"
+    t.index ["user_id", "novel_id"], name: "index_reading_histories_on_user_id_and_novel_id", unique: true
+    t.index ["user_id"], name: "index_reading_histories_on_user_id"
+  end
+
   create_table "unlocked_chapters", force: :cascade do |t|
     t.bigint "chapter_id", null: false
     t.datetime "created_at", null: false
@@ -162,5 +173,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_16_135635) do
   add_foreign_key "novels", "users"
   add_foreign_key "purchases", "novels"
   add_foreign_key "purchases", "users"
+  add_foreign_key "reading_histories", "novels"
+  add_foreign_key "reading_histories", "users"
   add_foreign_key "unlocked_chapters", "users"
 end
