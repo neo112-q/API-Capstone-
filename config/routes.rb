@@ -1,6 +1,11 @@
 Rails.application.routes.draw do
   namespace(:api) do
     namespace(:v1) do
+      
+      namespace :admin do
+        resources :users, only: [:index, :update, :destroy]
+      end
+
       # ส่วนของนิยาย
       resources(:novels) do
         collection do
@@ -43,7 +48,7 @@ Rails.application.routes.draw do
 
         post("topup/intent", to: "payments#create_intent")
       end
-      # ระบบ Stripe Webhook
+
       post("webhooks/stripe", to: "payments#stripe_webhook")
     end
   end

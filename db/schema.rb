@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_17_123608) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_20_133617) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "vector"
@@ -156,6 +156,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_17_123608) do
     t.string "email"
     t.string "password_digest"
     t.string "pen_name"
+    t.string "role", default: "user"
+    t.string "status", default: "active"
     t.string "stripe_customer_id"
     t.datetime "updated_at", null: false
     t.string "username"

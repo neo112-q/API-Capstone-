@@ -25,12 +25,12 @@ class Api::V1::UsersController < ApplicationController
            User.find_by(username: params[:identifier]&.downcase())
 
     if user&.authenticate(params[:password])
+      if user.banned?
+        return render(json: { error: "บัญชีของคุณถูกระงับการใช้งานชั่วคราวหรือถาวร" }, status: :forbidden)
+      end
+
       token = JsonWebToken.encode(payload: { user_id: user.id })
-      render(json: {
-        message: "Sign in successful",
-        token: token,
-        user: user_as_json(user)
-      }, status: :ok)
+      render(json: { message: "Sign in successful", token: token, user: user_as_json(user) }, status: :ok)
     else
       render(json: { message: "Invalid email/username or password" }, status: :unauthorized)
     end
