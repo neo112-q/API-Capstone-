@@ -92,6 +92,30 @@ class Api::V1::UsersController < ApplicationController
       render(json: { message: "Invalid password, cannot delete" }, status: :unauthorized)
     end
   end
+  
+  def liked_chapters
+    likes = ChapterLike.where(user_id: @current_user.id)
+                      .order(created_at: :desc)
+    
+    result = likes.map do |like|
+      novel = Novel.find(like.novel_id)
+      chapter = novel.chapters.find_by(chapter_no: like.chapter_no)
+      
+      {
+        id: like.id,
+        novelId: novel.id,
+        novelTitle: novel.title,
+        novelPenName: novel.pen_name,
+        novelCoverPath: novel.cover_path,
+        chapterNo: like.chapter_no,
+        chapterTitle: chapter&.title || "ไม่มีชื่อตอน",
+        likedAt: like.created_at,
+        genres: novel.genres.as_json(only: [:id, :name])
+      }
+    end
+    
+    render(json: { liked_chapters: result }, status: :ok)
+  end
 
   private
 
@@ -101,7 +125,7 @@ class Api::V1::UsersController < ApplicationController
 
   def set_s3_client
     @s3_client = Aws::S3::Client.new(
-      endpoint: "http://localhost:9000",
+      endpoint: "http://host.docker.internal:9000",  # ← เปลี่ยนจาก localhost:9000
       access_key_id: "admin_o",
       secret_access_key: "password_o123",
       region: "us-east-1",
@@ -111,14 +135,31 @@ class Api::V1::UsersController < ApplicationController
   end
 
   def upload_avatar_to_s3(user, file_content)
+    object_key = "avatars/#{user.id}.png"
+    
+    # ✅ ลบรูปเก่าก่อน
     begin
-      @s3_client.create_bucket(bucket: @bucket_name)
-    rescue Aws::S3::Errors::BucketAlreadyOwnedByYou, Aws::S3::Errors::BucketAlreadyExists
+      @s3_client.delete_object(bucket: @bucket_name, key: object_key)
+    rescue
     end
 
-    object_key = "avatars/#{user.id}.png"
-    @s3_client.put_object(bucket: @bucket_name, key: object_key, body: file_content.tempfile, content_type: file_content.content_type)
-    return "http://localhost:9000/#{@bucket_name}/#{object_key}"
+    if file_content.is_a?(String) && file_content.include?('base64,')
+      base64_data = file_content.split(',').last
+      decoded_image = Base64.decode64(base64_data)
+      body = decoded_image
+    else
+      body = file_content.tempfile
+    end
+
+    @s3_client.put_object(
+      bucket: @bucket_name, 
+      key: object_key, 
+      body: body,
+      content_type: "image/png"
+    )
+    
+    # ✅ ใช้ localhost สำหรับ browser แต่ timestamp ป้องกัน cache
+    return "http://localhost:9000/#{@bucket_name}/#{object_key}?t=#{Time.now.to_i}"
   end
 
   def user_as_json(user)

@@ -1,2 +1,10 @@
-Stripe.api_key = "sk_test_51TM8L9IqIGxF6X5fC9YdbVkNOFvoriTHcI86myvZsqhE6uF8S1ko6dwcV2lhrnyjGsVy6i8bxaHABPH1ZbRHmUdW00y4m2cMrg"
-STRIPE_WEBHOOK_SECRET = "whsec_489f9e8c82cdf29f3912a9050eb48775ebb88b9dc792e9b7972493eae7a4a11d"
+# config/initializers/stripe.rb
+require 'stripe'
+
+Stripe.api_key = ENV['STRIPE_SECRET_KEY']
+Stripe.api_version = '2025-02-24.acacia'
+
+
+STRIPE_WEBHOOK_SECRET = ENV['STRIPE_WEBHOOK_SECRET']
+
+puts "✅ Stripe initialized with key: #{ENV['STRIPE_SECRET_KEY']&.first(20)}..." if Rails.env.development?

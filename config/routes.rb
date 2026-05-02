@@ -1,7 +1,6 @@
 Rails.application.routes.draw do
   namespace(:api) do
     namespace(:v1) do
-      
       resources(:novels) do
         collection do
           get("my_novels", to: "novels#my_novels")
@@ -14,16 +13,19 @@ Rails.application.routes.draw do
           delete("unfollow", to: "follows#destroy")
         end
 
-        post("toggle_like", to: "likes#toggle")
         post("purchase", to: "purchases#create")
 
         resources(:chapters, only: [:index, :create, :update, :destroy, :show]) do
-          post("toggle_like", to: "likes#toggle")
           member do
+            post("toggle_like", to: "likes#toggle")
             post("unlock", to: "chapters#unlock")
           end
         end
       end
+      
+      resources(:reading_histories, only: [:index, :create, :destroy])
+      
+      get("user/liked_chapters", to: "users#liked_chapters")
       
       scope(:user) do
         post("sign-up", to: "users#sign_up")
@@ -35,6 +37,7 @@ Rails.application.routes.draw do
         patch("password", to: "users#update_password")
         
         post("topup/intent", to: "payments#create_intent")
+        post("topup/create-checkout-session", to: "payments#create_checkout_session")
       end
       
       post("webhooks/stripe", to: "payments#stripe_webhook")

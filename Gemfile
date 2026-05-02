@@ -17,6 +17,7 @@ gem "jwt"
 gem "fiddle"
 gem "aws-sdk-s3"
 gem "stripe"
+gem "dotenv-rails"
 # Gemfile
 gem "neighbor"
 gem "pgvector"

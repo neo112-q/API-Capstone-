@@ -44,37 +44,6 @@ reader = User.create!(
   coin_balance: 500
 )
 
-puts "📚 สร้างนิยายจำลอง..."
-novel_1 = Novel.create!(
-  user: author,
-  title: "เกิดใหม่ทั้งที ขอเป็นเศรษฐีละกัน!",
-  pen_name: "อาจารย์ A",
-  description: "นิยายแนวแฟนตาซีทะลุมิติ...",
-  status: :published,
-  is_premium: true,
-  price: 150.00
-)
-
-novel_2 = Novel.create!(
-  user: author,
-  title: "บันทึกลับระบบสุ่มกาชา",
-  pen_name: "อาจารย์ A",
-  description: "เมื่อโชคชะตาขึ้นอยู่กับเกลือ...",
-  status: :published,
-  is_premium: false, # เรื่องนี้อ่านฟรี
-  price: 0.00
-)
-novel_1.genres << Genre.find_by(name: "fantasy")
-novel_1.genres << Genre.find_by(name: "action")
-novel_2.genres << Genre.find_by(name: "comedy")
-
-puts "📄 สร้างตอนจำลอง (Chapters)..."
-Chapter.create!(novel: novel_1, chapter_no: 1, title: "จุดเริ่มต้น", price: 0) # ตอนแรกให้อ่านฟรี
-Chapter.create!(novel: novel_1, chapter_no: 2, title: "พลังที่ตื่นขึ้น", price: 10) # ติดเหรียญ 10 บาท
-Chapter.create!(novel: novel_1, chapter_no: 3, title: "บททดสอบ", price: 15) # ติดเหรียญ 15 บาท
-
-Chapter.create!(novel: novel_2, chapter_no: 1, title: "เกลือล้วนๆ", price: 0)
-
 puts "🎉 สร้างข้อมูลจำลอง เสร็จสมบูรณ์!"
 puts "-------------------------------------------"
 puts "📌 ข้อมูลสำหรับ Login ใน Postman:"

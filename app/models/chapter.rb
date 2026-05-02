@@ -5,17 +5,42 @@ class Chapter < ApplicationRecord
   validates(:chapter_no, presence: true, numericality: { only_integer: true, greater_than: 0 })
   validates(:title, presence: true)
 
-  # เช็คลำดับก่อนสร้างได้ด้วย
   validate(:must_be_sequential, on: :create)
 
   has_many(:unlocked_chapters, dependent: :destroy)
+  
   has_many(:likes, as: :likeable, dependent: :destroy)
+  
+  def chapter_likes
+    ChapterLike.where(novel_id: novel_id, chapter_no: chapter_no)
+  end
+  
+  def is_liked_by?(user)
+    return false unless user
+
+    ChapterLike.exists?(
+      user_id: user.id,
+      novel_id: self.novel_id,
+      chapter_no: self.chapter_no
+    )
+  end
+
+  def likes_count
+    ChapterLike.where(novel_id: novel_id, chapter_no: chapter_no).count
+  end
+  
+  def view_count
+    ChapterView.where(novel_id: novel_id, chapter_no: chapter_no).count
+  end
+  
+  def reload_likes_count!
+    @likes_count = nil
+    likes_count
+  end
   private
 
-  def must_be_sequential()
-    # นับว่าตอนนี้นิยายเรื่องนี้มีกี่ตอนแล้วน  ะ
-    last_no = novel.chapters.count()
-    # ถ้าจะสร้างตอนใหม่ เลขตอนต้องเท่ากับ (จำนวนตอนเดิม + 1) เท่านั้น เพื่อจะได้ไม่มีปัญหานะ
+  def must_be_sequential
+    last_no = novel.chapters.count
     if chapter_no != last_no + 1
       errors.add(:chapter_no, "ต้องเป็นตอนที่ #{last_no + 1} เท่านั้น (ห้ามข้ามตอน)")
     end
