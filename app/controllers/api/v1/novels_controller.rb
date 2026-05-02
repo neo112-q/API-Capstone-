@@ -15,8 +15,10 @@ class Api::V1::NovelsController < ::ApplicationController
     novels = Novel.where(status: :published).order(updated_at: :desc)
     
     novels_with_views = novels.map do |novel|
+      total_likes = ChapterLike.where(novel_id: novel.id).count
       novel.as_json(include: :genres).merge(
-        view_count: novel.total_views
+        view_count: novel.total_views,
+        like_count: total_likes
       )
     end
     
@@ -116,6 +118,8 @@ class Api::V1::NovelsController < ::ApplicationController
     if @current_user
       has_purchased = Purchase.exists?(user: @current_user, novel: novel)
     end
+
+    total_likes = ChapterLike.where(novel_id: novel.id).count
     
     render(json: {
       id: novel.id,
@@ -124,7 +128,8 @@ class Api::V1::NovelsController < ::ApplicationController
       description: novel.description,
       genres: novel.genres,
       cover_path: novel.cover_path,
-      view_count: novel.total_views(), 
+      view_count: novel.total_views(),
+      like_count: total_likes,
       follow_count: novel.follows.count,
       is_followed: @current_user ? novel.follows.exists?(user: @current_user) : false,
       price: novel.price || 0,              
