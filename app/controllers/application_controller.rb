@@ -14,4 +14,11 @@ class ApplicationController < ActionController::API
       end
     end
   end
+
+  def authorize_admin
+    unless @current_user&.admin?
+      render(json: { error: "ไม่มีสิทธิ์เข้าถึง (สำหรับ Admin เท่านั้น)" }, status: :forbidden)
+    end
+  end
+
 end

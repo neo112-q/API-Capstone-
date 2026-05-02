@@ -8,7 +8,7 @@ class Api::V1::ChaptersController < ::ApplicationController
   def index()
     novel = Novel.find(params[:novel_id])
     chapters = novel.chapters.order(:chapter_no)
-    
+
     result = chapters.map do |ch|
       {
         id: ch.id,
@@ -321,14 +321,14 @@ class Api::V1::ChaptersController < ::ApplicationController
 
   # ลบไฟล์ตอนออกจาก S3
   def delete_from_s3(novel, chapter)
-    object_key = "novel/#{@current_user.id}/#{novel.id}/#{chapter.chapter_no}.txt"
+    object_key = "novel/#{novel.user_id}/#{novel.id}/#{chapter.chapter_no}.txt"
     @s3_client.delete_object(bucket: @bucket_name, key: object_key)
   end
 
   # เปลี่ยนชื่อไฟล์ใน S3 (ใช้ตอนขยับเลข章节)
   def rename_s3_file(novel, old_no, new_no)
-    old_key = "novel/#{@current_user.id}/#{novel.id}/#{old_no}.txt"
-    new_key = "novel/#{@current_user.id}/#{novel.id}/#{new_no}.txt"
+    old_key = "novel/#{novel.user_id}/#{novel.id}/#{old_no}.txt"
+    new_key = "novel/#{novel.user_id}/#{novel.id}/#{new_no}.txt"
 
     # Copy ไฟล์เก่าไปชื่อใหม่
     @s3_client.copy_object(

@@ -7,7 +7,7 @@ Rails.application.routes.draw do
           get("genres", to: "novels#genres_list")
           get("following", to: "follows#index")
         end
-        
+
         member do
           post("follow", to: "follows#create")
           delete("unfollow", to: "follows#destroy")
@@ -15,6 +15,7 @@ Rails.application.routes.draw do
 
         post("purchase", to: "purchases#create")
 
+        # ส่วนของchapters
         resources(:chapters, only: [:index, :create, :update, :destroy, :show]) do
           member do
             post("toggle_like", to: "likes#toggle")
@@ -38,13 +39,12 @@ Rails.application.routes.draw do
         get("profile", to: "users#profile")
         patch("profile", to: "users#update_profile")
         patch("password", to: "users#update_password")
-        
+
         post("topup/intent", to: "payments#create_intent")
         post("topup/create-checkout-session", to: "payments#create_checkout_session")
       end
-      
+
       post("webhooks/stripe", to: "payments#stripe_webhook")
-      
     end
   end
 end

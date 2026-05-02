@@ -1,6 +1,6 @@
 # app/models/chapter.rb
 class Chapter < ApplicationRecord
-  self.primary_key = [:novel_id, :chapter_no]
+  self.primary_key = [ :novel_id, :chapter_no ]
   belongs_to(:novel)
 
   validates(:chapter_no, presence: true, numericality: { only_integer: true, greater_than: 0 })
