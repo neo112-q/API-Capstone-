@@ -1,24 +1,66 @@
+# app/controllers/api/v1/payments_controller.rb
 class Api::V1::PaymentsController < ::ApplicationController
-  # ยกเว้นการตรวจ CSRF เฉพาะตอน Stripe ยิงมา
   skip_before_action(:verify_authenticity_token, only: [:stripe_webhook], raise: false)
-  # สั่งตรวจ Token ของ User ทุกเส้นยกเว้น Webhook
-  before_action(:authorize_request, except: [:stripe_webhook])
-
-  # API 1: สร้างใบแจ้งหนี้
-  def create_intent()
+  before_action(:authorize_request, except: [:stripe_webhook, :success, :cancel])
+  
+  # ✅ สร้าง Checkout Session (ที่ Frontend เรียก)
+  def create_checkout_session
+    amount = params[:amount].to_i
+    success_url = params[:success_url] || "#{request.base_url}/topup/success"
+    cancel_url = params[:cancel_url] || "#{request.base_url}/topup"
+    
+    if amount < 10
+      return render(json: { error: "จำนวนเงินขั้นต่ำ 10 บาท" }, status: :unprocessable_entity)
+    end
+    
+    begin
+      session = Stripe::Checkout::Session.create({
+        payment_method_types: ['card', 'promptpay'],
+        line_items: [{
+          price_data: {
+            currency: 'thb',
+            product_data: {
+              name: 'เติมเหรียญสำหรับอ่านนิยาย',
+              description: "รับ #{amount} เหรียญ (1 บาท = 1 เหรียญ)",
+              images: ['https://your-domain.com/coin-icon.png'] # ใส่รูปถ้ามี
+            },
+            unit_amount: amount * 100, # Stripe ใช้สตางค์ (บาท * 100)
+          },
+          quantity: 1,
+        }],
+        mode: 'payment',
+        success_url: success_url,
+        cancel_url: cancel_url,
+        metadata: {
+          user_id: @current_user.id,
+          coin_amount: amount,
+          type: 'topup'
+        },
+        locale: 'th'
+      })
+      
+      render(json: { url: session.url }, status: :ok)
+      
+    rescue Stripe::StripeError => e
+      Rails.logger.error "Stripe Error: #{e.message}"
+      render(json: { error: e.message }, status: :bad_request)
+    end
+  end
+  
+  # ฟังก์ชันเก่า (optional - ไว้ใช้ในอนาคต)
+  def create_intent
     coin_amount = params[:coin_amount].to_i
     return render(json: { error: "จำนวนเหรียญไม่ถูกต้อง" }, status: :unprocessable_entity) if coin_amount <= 0
 
-    fee_multiplier = 1.0
-    total_price_thb = (coin_amount * fee_multiplier).round(2)
+    total_price_thb = coin_amount.round(2)
 
     begin
       intent = Stripe::PaymentIntent.create({
-        amount: (total_price_thb * 100).to_i, # Stripe รับเป็นสตางค์
+        amount: (total_price_thb * 100).to_i,
         currency: "thb",
         metadata: { 
           user_id: @current_user.id, 
-          coin_amount: coin_amount, # เก็บจำนวนเหรียญที่จะให้ไว้ใน metadata
+          coin_amount: coin_amount,
           fee_added: "0%"
         }
       })
@@ -34,47 +76,70 @@ class Api::V1::PaymentsController < ::ApplicationController
     end
   end
 
-  # API 2 Webhook รับเงินจริง ไม่มีคืนเงินนะจ๊ะ
-  def stripe_webhook()
-    payload = request.body.read()
-    sig_header = request.env["HTTP_STRIPE_SIGNATURE"]
+  def stripe_webhook
+    payload = request.body.read
+    sig_header = request.env['HTTP_STRIPE_SIGNATURE']
+    webhook_secret = ENV['STRIPE_WEBHOOK_SECRET']
     
-    puts "====================================="
-    puts "[1] WEBHOOK วิ่งเข้าเซิร์ฟเวอร์แล้ว!"
-
+    Rails.logger.info "=== Webhook Received ==="
+    Rails.logger.info "Event Type: Checking..."
+    
     begin
-      event = Stripe::Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
-      puts "[2] ลายเซ็นถูกต้อง! (Event: #{event.type})"
-    rescue JSON::ParserError, Stripe::SignatureVerificationError => e
-      puts "[พังที่ข้อ 2] ลายเซ็นไม่ตรง! (ใส่ whsec ผิด หรือไม่ได้ Restart เซิร์ฟเวอร์)"
-      puts "Error: #{e.message}"
-      return render(json: { error: "Webhook Error" }, status: :bad_request)
-    end
-
-    if event.type == "payment_intent.succeeded"
-      payment_intent = event.data.object
-      user_id = payment_intent.metadata.user_id
-      coin_amount = payment_intent.metadata.coin_amount.to_i
-
-      puts "[3] ดึงข้อมูลได้: User ID = #{user_id.inspect}, จำนวนเหรียญ = #{coin_amount.inspect}"
-
-      user = User.find_by(id: user_id)
+      event = Stripe::Webhook.construct_event(payload, sig_header, webhook_secret)
+      Rails.logger.info "✅ Webhook verified: #{event.type}"
       
-      if user.present?
-        ActiveRecord::Base.transaction do
-          user.lock!() 
-          user.coin_balance += coin_amount
-          user.save!()
+      case event.type
+      when 'checkout.session.completed'
+        session = event.data.object
+        
+        # ✅ ตรวจสอบว่า session นี้จ่ายเงินสำเร็จ
+        if session.payment_status == 'paid'
+          user_id = session.metadata.user_id
+          coin_amount = session.metadata.coin_amount.to_i
+          
+          Rails.logger.info "Processing payment: user_id=#{user_id}, coins=#{coin_amount}"
+          
+          # ✅ อัพเดทเหรียญ
+          user = User.find_by(id: user_id)
+          if user
+            user.update_columns(coin_balance: user.coin_balance + coin_amount)
+            Rails.logger.info "✅ Added #{coin_amount} coins to user #{user_id}. New balance: #{user.coin_balance}"
+          else
+            Rails.logger.error "❌ User not found: #{user_id}"
+          end
         end
-        puts "[4] บันทึก DB สำเร็จ ! บวก #{coin_amount} เหรียญให้ User #{user.id} แล้ว!"
-      else
-        puts "[พังที่ข้อ 4] หา User ID #{user_id} ไม่เจอใน Database !!"
+        
+      when 'payment_intent.succeeded'
+        payment_intent = event.data.object
+        user_id = payment_intent.metadata.user_id
+        coin_amount = payment_intent.metadata.coin_amount.to_i
+        
+        user = User.find_by(id: user_id)
+        if user
+          user.update_columns(coin_balance: user.coin_balance + coin_amount)
+          Rails.logger.info "✅ Added #{coin_amount} coins via PaymentIntent"
+        end
       end
-    else
-       puts "ไม่ใช่ Event จ่ายเงินสำเร็จ (เป็น Event: #{event.type})"
+      
+      render(json: { status: 'success' }, status: :ok)
+      
+    rescue Stripe::SignatureVerificationError => e
+      Rails.logger.error "❌ Webhook signature verification failed: #{e.message}"
+      render(json: { error: 'Invalid signature' }, status: :bad_request)
+    rescue => e
+      Rails.logger.error "❌ Webhook error: #{e.message}"
+      render(json: { error: e.message }, status: :internal_server_error)
     end
-    puts "====================================="
-
-    render(json: { status: "received" }, status: :ok)
+  end
+  
+  # ✅ เพิ่ม endpoint สำหรับ success page
+  def success
+    # หน้า success จะถูกจัดการโดย frontend
+    # แค่ render JSON เพื่อให้ frontend รู้ว่า success
+    render(json: { status: 'success', message: 'เติมเหรียญสำเร็จ' }, status: :ok)
+  end
+  
+  def cancel
+    render(json: { status: 'cancelled', message: 'ยกเลิกการเติมเหรียญ' }, status: :ok)
   end
 end

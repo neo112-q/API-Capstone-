@@ -1,54 +1,41 @@
 class Api::V1::ReadingHistoriesController < ::ApplicationController
-  before_action(:authorize_request)
+  before_action :authorize_request
 
-  # R ดูประวัติการอ่านทั้งหมดของตัวเอง
   def index
     histories = @current_user.reading_histories.includes(:novel).order(updated_at: :desc)
-
+    
     result = histories.map do |h|
-      chapter = h.novel.chapters.find_by(chapter_no: h.chapter_no)
       {
-        novel_id: h.novel.id,
-        novel_title: h.novel.title,
+        novel_id: h.novel_id,
+        novel_title: h.novel.title,      
+        pen_name: h.novel.pen_name,   
+        cover_path: h.novel.cover_path,  
         chapter_no: h.chapter_no,
-        chapter_title: chapter&.title || "ไม่พบชื่อตอน",
-        last_read_at: h.updated_at
+        last_read_at: h.updated_at,
+        genres: h.novel.genres.as_json(only: [:id, :name])
       }
     end
-
-    render(json: { reading_histories: result }, status: :ok)
+    
+    render json: { reading_histories: result }, status: :ok
   end
 
-  # C & U บันทึกหรืออัปเดตประวัติการอ่าน
   def create
     novel = Novel.find(params[:novel_id])
     chapter = novel.chapters.find_by!(chapter_no: params[:chapter_no])
 
-    # ค้นหาว่ามีประวัติเรื่องนี้ไหม ถ้าไม่มีก็ให้เตรียมสร้างใหม่
     history = @current_user.reading_histories.find_or_initialize_by(novel: novel)
+    history.chapter_no = chapter.chapter_no
 
-    # อัปเดตว่าเป็นตอนล่าสุดที่อ่านแล้วนะ
-    history.chapter = chapter
-
-    if history.save()
-      render(json: {
-        message: "บันทึกประวัติการอ่านเรียบร้อย",
-        last_read: history.chapter.chapter_no
-      }, status: :ok)
+    if history.save
+      render json: { message: "บันทึกประวัติการอ่านเรียบร้อย", last_read: history.chapter_no }, status: :ok
     else
-      render(json: { errors: history.errors.full_messages }, status: :unprocessable_entity)
+      render json: { errors: history.errors.full_messages }, status: :unprocessable_entity
     end
-  rescue ActiveRecord::RecordNotFound
-    render(json: { error: "หานิยายหรือตอนไม่เจอ" }, status: :not_found)
   end
 
-  # D ลบประวัติการอ่าน เผื่อคนอ่านอยากล้างประวัติ
   def destroy
     history = @current_user.reading_histories.find_by!(novel_id: params[:id])
-    history.destroy()
-
-    render(json: { message: "ลบประวัติการอ่านเรื่องนี้แล้ว" }, status: :ok)
-  rescue ActiveRecord::RecordNotFound
-    render(json: { error: "ไม่พบประวัติการอ่าน" }, status: :not_found)
+    history.destroy
+    render json: { message: "ลบประวัติการอ่านเรื่องนี้แล้ว" }, status: :ok
   end
 end

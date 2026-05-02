@@ -1,12 +1,6 @@
 Rails.application.routes.draw do
   namespace(:api) do
     namespace(:v1) do
-      
-      namespace :admin do
-        resources :users, only: [:index, :update, :destroy]
-      end
-
-      # ส่วนของนิยาย
       resources(:novels) do
         collection do
           get("my_novels", to: "novels#my_novels")
@@ -19,24 +13,24 @@ Rails.application.routes.draw do
           delete("unfollow", to: "follows#destroy")
         end
 
-        post("toggle_like", to: "likes#toggle")
         post("purchase", to: "purchases#create")
 
         # ส่วนของchapters
         resources(:chapters, only: [:index, :create, :update, :destroy, :show]) do
-          post("toggle_like", to: "likes#toggle")
           member do
+            post("toggle_like", to: "likes#toggle")
             post("unlock", to: "chapters#unlock")
           end
         end
       end
-      resources(:reading_histories, only: [:index, :destroy]) do
-        collection do
-          post("save", to: "reading_histories#create")
-        end
-      end
-
-      # ส่วนของ User และระบบเงิน
+      
+      resources(:reading_histories, only: [:index, :create, :destroy])
+      
+      get("user/liked_chapters", to: "users#liked_chapters")
+      
+      # ✅ เพิ่ม route สำหรับดึง unlocked chapters
+      get("users/:user_id/unlocked_chapters", to: "users#unlocked_chapters")
+      
       scope(:user) do
         post("sign-up", to: "users#sign_up")
         post("sign-in", to: "users#sign_in")
@@ -47,6 +41,7 @@ Rails.application.routes.draw do
         patch("password", to: "users#update_password")
 
         post("topup/intent", to: "payments#create_intent")
+        post("topup/create-checkout-session", to: "payments#create_checkout_session")
       end
 
       post("webhooks/stripe", to: "payments#stripe_webhook")
