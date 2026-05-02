@@ -27,6 +27,9 @@ Rails.application.routes.draw do
       
       get("user/liked_chapters", to: "users#liked_chapters")
       
+      # ✅ เพิ่ม route สำหรับดึง unlocked chapters
+      get("users/:user_id/unlocked_chapters", to: "users#unlocked_chapters")
+      
       scope(:user) do
         post("sign-up", to: "users#sign_up")
         post("sign-in", to: "users#sign_in")

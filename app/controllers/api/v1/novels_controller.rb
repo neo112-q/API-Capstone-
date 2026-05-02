@@ -74,12 +74,25 @@ class Api::V1::NovelsController < ::ApplicationController
       novel.genres = Genre.where(name: params[:novel][:genres])
     end
 
-    if params[:novel][:is_premium].present?   # ✅ เพิ่มตรงนี้
+    if params[:novel][:is_premium].present?
       novel.is_premium = params[:novel][:is_premium]
     end
 
-    if params[:novel][:price].present?        # ✅ เพิ่มตรงนี้
+    if params[:novel][:price].present?
       novel.price = params[:novel][:price]
+    end
+
+    # ✅ เพิ่ม 3 บรรทัดนี้ (สำคัญมาก!)
+    if params[:novel][:pricing_model].present?
+      novel.pricing_model = params[:novel][:pricing_model]
+    end
+
+    if params[:novel][:early_access_days].present?
+      novel.early_access_days = params[:novel][:early_access_days]
+    end
+
+    if params[:novel][:per_chapter_price].present?
+      novel.per_chapter_price = params[:novel][:per_chapter_price]
     end
 
     if params[:cover_content].present?
@@ -117,7 +130,10 @@ class Api::V1::NovelsController < ::ApplicationController
       price: novel.price || 0,              
       is_premium: novel.is_premium || false,     
       user_id: novel.user_id,                     
-      has_purchased: has_purchased                
+      has_purchased: has_purchased,
+      pricing_model: novel.pricing_model || 'free',
+      early_access_days: novel.early_access_days || 7,
+      per_chapter_price: novel.per_chapter_price || 0             
     }, status: :ok)
   end
 
@@ -152,18 +168,34 @@ class Api::V1::NovelsController < ::ApplicationController
   def destroy()
     novel = @current_user.novels.find(params[:id])
     
-    # ✅ ลบ chapters ก่อน
-    novel.chapters.destroy_all
-    
-    # ✅ ลบ cover ถ้ามี
-    delete_cover_from_s3(novel) if novel.cover_path.present?
-    
-    # ✅ แล้วค่อยลบนิยาย
-    novel.destroy
+    # ✅ ใช้ transaction และลบด้วย SQL โดยตรง
+    ActiveRecord::Base.transaction do
+      # ลบข้อมูลที่เกี่ยวข้องทั้งหมด
+      UnlockedChapter.where(novel_id: novel.id).delete_all
+      ChapterLike.where(novel_id: novel.id).delete_all
+      ChapterView.where(novel_id: novel.id).delete_all
+      ReadingHistory.where(novel_id: novel.id).delete_all
+      Follow.where(novel_id: novel.id).delete_all
+      Purchase.where(novel_id: novel.id).delete_all
+      NovelGenre.where(novel_id: novel.id).delete_all
+      
+      # ลบ chapters
+      Chapter.where(novel_id: novel.id).delete_all
+      
+      # ลบ cover
+      delete_cover_from_s3(novel) if novel.cover_path.present?
+      
+      # ลบนิยาย
+      novel.destroy
+    end
     
     render(json: { message: "Your novel has been deleted" }, status: :ok)
+    
   rescue ActiveRecord::RecordNotFound
     render(json: { error: "You don't have permission to delete this novel" }, status: :forbidden)
+  rescue => e
+    Rails.logger.error "Delete novel error: #{e.message}"
+    render(json: { error: e.message }, status: :internal_server_error)
   end
 
   private

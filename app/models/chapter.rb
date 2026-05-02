@@ -1,3 +1,4 @@
+# app/models/chapter.rb
 class Chapter < ApplicationRecord
   self.primary_key = [:novel_id, :chapter_no]
   belongs_to(:novel)
@@ -7,7 +8,10 @@ class Chapter < ApplicationRecord
 
   validate(:must_be_sequential, on: :create)
 
-  has_many(:unlocked_chapters, dependent: :destroy)
+  # ✅ แก้ไข: ใช้ delete_all แทน destroy เพื่อ bypass composite key issues
+  has_many(:unlocked_chapters, dependent: :delete_all, foreign_key: :novel_id)
+  has_many(:chapter_likes, dependent: :delete_all, foreign_key: :novel_id)
+  has_many(:chapter_views, dependent: :delete_all, foreign_key: :novel_id)
   
   has_many(:likes, as: :likeable, dependent: :destroy)
   
@@ -37,6 +41,7 @@ class Chapter < ApplicationRecord
     @likes_count = nil
     likes_count
   end
+  
   private
 
   def must_be_sequential

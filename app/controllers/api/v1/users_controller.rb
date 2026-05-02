@@ -117,6 +117,24 @@ class Api::V1::UsersController < ApplicationController
     render(json: { liked_chapters: result }, status: :ok)
   end
 
+  # ✅ เพิ่ม method นี้!
+  def unlocked_chapters
+    user_id = params[:user_id]
+    novel_id = params[:novel_id]
+    
+    # ตรวจสอบสิทธิ์
+    unless @current_user && @current_user.id == user_id.to_i
+      return render(json: { error: "Unauthorized" }, status: :unauthorized)
+    end
+    
+    unlocked = UnlockedChapter.where(
+      user_id: user_id,
+      novel_id: novel_id
+    ).pluck(:chapter_no)
+    
+    render(json: unlocked, status: :ok)
+  end
+
   private
 
   def sign_up_params
@@ -125,7 +143,7 @@ class Api::V1::UsersController < ApplicationController
 
   def set_s3_client
     @s3_client = Aws::S3::Client.new(
-      endpoint: "http://host.docker.internal:9000",  # ← เปลี่ยนจาก localhost:9000
+      endpoint: "http://host.docker.internal:9000",
       access_key_id: "admin_o",
       secret_access_key: "password_o123",
       region: "us-east-1",
@@ -137,7 +155,6 @@ class Api::V1::UsersController < ApplicationController
   def upload_avatar_to_s3(user, file_content)
     object_key = "avatars/#{user.id}.png"
     
-    # ✅ ลบรูปเก่าก่อน
     begin
       @s3_client.delete_object(bucket: @bucket_name, key: object_key)
     rescue
@@ -158,7 +175,6 @@ class Api::V1::UsersController < ApplicationController
       content_type: "image/png"
     )
     
-    # ✅ ใช้ localhost สำหรับ browser แต่ timestamp ป้องกัน cache
     return "http://localhost:9000/#{@bucket_name}/#{object_key}?t=#{Time.now.to_i}"
   end
 

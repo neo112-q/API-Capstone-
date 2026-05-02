@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_05_02_035913) do
+ActiveRecord::Schema[8.1].define(version: 2026_05_02_064000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -169,12 +169,15 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_02_035913) do
 
   create_table "unlocked_chapters", force: :cascade do |t|
     t.bigint "chapter_id", null: false
+    t.integer "chapter_no"
     t.datetime "created_at", null: false
+    t.integer "novel_id"
     t.decimal "price_paid", precision: 10, scale: 2, default: "0.0"
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
     t.index ["chapter_id"], name: "index_unlocked_chapters_on_chapter_id"
     t.index ["user_id", "chapter_id"], name: "index_unlocked_chapters_on_user_id_and_chapter_id", unique: true
+    t.index ["user_id", "novel_id", "chapter_no"], name: "index_unlocked_chapters_on_user_id_and_novel_id_and_chapter_no", unique: true
     t.index ["user_id"], name: "index_unlocked_chapters_on_user_id"
   end
 

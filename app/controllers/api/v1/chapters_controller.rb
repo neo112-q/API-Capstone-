@@ -17,7 +17,8 @@ class Api::V1::ChaptersController < ::ApplicationController
         content: load_chapter_content(novel, ch),
         view_count: ch.view_count,
         like_count: ch.likes_count,
-        is_liked: @current_user ? ch.is_liked_by?(@current_user) : false
+        is_liked: @current_user ? ch.is_liked_by?(@current_user) : false,
+        price: ch.price || 0
       }
     end
 
@@ -31,7 +32,8 @@ class Api::V1::ChaptersController < ::ApplicationController
 
     chapter = novel.chapters.build(
       chapter_no: params[:chapter_no],
-      title: params[:title]
+      title: params[:title],
+      price: params[:price] || 0
     )
 
     if chapter.save()
@@ -89,7 +91,7 @@ class Api::V1::ChaptersController < ::ApplicationController
     
     is_owner = @current_user && novel.user_id == @current_user.id
     has_purchased_novel = @current_user && Purchase.exists?(user: @current_user, novel: novel)
-    has_unlocked = @current_user && UnlockedChapter.exists?(user: @current_user, chapter: chapter)
+    has_unlocked = @current_user && UnlockedChapter.exists?(user: @current_user, novel_id: novel.id, chapter_no: chapter.chapter_no)
     
     # ✅ ตรวจสอบ pricing model
     case novel.pricing_model
@@ -168,31 +170,38 @@ class Api::V1::ChaptersController < ::ApplicationController
   end
 
   # POST /api/v1/novels/:novel_id/chapters/:id/unlock
-  # ปลดล็อคตอนที่ต้องใช้เหรียญ (Pessimistic Locking ป้องกันการกดซ้ำ)
   def unlock()
     novel = Novel.find(params[:novel_id])
     chapter = novel.chapters.find_by!(chapter_no: params[:id])
 
-    # ตรวจสอบว่าตอนนี้ต้องปลดล็อคจริงหรือไม่
     return render(json: { error: "ตอนนี้อ่านฟรี!" }, status: :bad_request) if !novel.is_premium || chapter.price == 0
-    return render(json: { error: "คุณปลดล็อคแล้ว!" }, status: :bad_request) if UnlockedChapter.exists?(user: @current_user, chapter: chapter)
+    
+    # ✅ แก้ไขตรงนี้
+    if UnlockedChapter.exists?(user_id: @current_user.id, novel_id: novel.id, chapter_no: chapter.chapter_no)
+      return render(json: { error: "คุณปลดล็อคแล้ว!" }, status: :bad_request)
+    end
 
-    # ใช้ Transaction + Lock ป้องกันการหักเงินซ้ำ
     ActiveRecord::Base.transaction do
-      @current_user.lock!  # Lock แถวนี้ไม่ให้คนอื่นแก้ไขพร้อมกัน
+      @current_user.lock!
 
       if @current_user.coin_balance >= chapter.price
         @current_user.coin_balance -= chapter.price
         @current_user.save!
 
-        UnlockedChapter.create!(user: @current_user, chapter: chapter, price_paid: chapter.price)
+        # ✅ สร้างโดยใช้ novel_id และ chapter_no
+        UnlockedChapter.create!(
+          user_id: @current_user.id,
+          novel_id: novel.id,
+          chapter_no: chapter.chapter_no,
+          price_paid: chapter.price
+        )
       else
-        raise ActiveRecord::Rollback  # เงินไม่พอ ยกเลิก transaction
+        raise ActiveRecord::Rollback
       end
     end
 
-    if UnlockedChapter.exists?(user: @current_user, chapter: chapter)
-      render(json: { message: "ปลดล็อคสำเร็จ!", balance: @current_user.coin_balance }, status: :ok)
+    if UnlockedChapter.exists?(user_id: @current_user.id, novel_id: novel.id, chapter_no: chapter.chapter_no)
+      render(json: { message: "ปลดล็อคสำเร็จ!", balance: @current_user.reload.coin_balance }, status: :ok)
     else
       render(json: { error: "เหรียญไม่พอ กรุณาเติมเงิน" }, status: :payment_required)
     end
