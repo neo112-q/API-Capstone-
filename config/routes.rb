@@ -43,6 +43,8 @@ Rails.application.routes.draw do
 
         post("topup/intent", to: "payments#create_intent")
         post("topup/create-checkout-session", to: "payments#create_checkout_session")
+
+        post("connect/onboarding", to: "payments#connect_onboarding")
       end
 
       post("webhooks/stripe", to: "payments#stripe_webhook")
