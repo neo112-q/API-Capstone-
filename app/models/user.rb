@@ -14,7 +14,17 @@ class User < ApplicationRecord
   has_many(:reading_histories, dependent: :destroy)
 
   enum :role, { user: "user", admin: "admin" }
-  enum :status, { active: "active", banned: "banned" } 
-  validates( :email, presence: true, uniqueness: true)
-  validates(:username, presence: true, uniqueness: true) 
+  enum :status, { active: "active", banned: "banned" }
+  validates(:email, presence: true, uniqueness: true)
+  validates(:username, presence: true, uniqueness: true)
+
+  def generate_password_reset_token
+    self.reset_password_token = rand(100000..999999).to_s
+    self.reset_password_sent_at = Time.current
+    save!(validate: false)
+  end
+
+  def password_reset_valid?
+    (self.reset_password_sent_at + 15.minutes) > Time.current
+  end
 end

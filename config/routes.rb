@@ -1,6 +1,8 @@
 Rails.application.routes.draw do
   namespace(:api) do
     namespace(:v1) do
+      post 'forgot_password', to: 'passwords#forgot'
+      post 'reset_password', to: 'passwords#reset'
       resources(:novels) do
         collection do
           get("my_novels", to: "novels#my_novels")
@@ -23,14 +25,13 @@ Rails.application.routes.draw do
           end
         end
       end
-      
+
       resources(:reading_histories, only: [:index, :create, :destroy])
-      
+
       get("user/liked_chapters", to: "users#liked_chapters")
-      
-      # ✅ เพิ่ม route สำหรับดึง unlocked chapters
+
       get("users/:user_id/unlocked_chapters", to: "users#unlocked_chapters")
-      
+
       scope(:user) do
         post("sign-up", to: "users#sign_up")
         post("sign-in", to: "users#sign_in")
@@ -42,6 +43,8 @@ Rails.application.routes.draw do
 
         post("topup/intent", to: "payments#create_intent")
         post("topup/create-checkout-session", to: "payments#create_checkout_session")
+
+        post("connect/onboarding", to: "payments#connect_onboarding")
       end
 
       post("webhooks/stripe", to: "payments#stripe_webhook")
