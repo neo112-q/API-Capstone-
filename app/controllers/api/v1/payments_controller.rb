@@ -1,4 +1,3 @@
-# app/controllers/api/v1/payments_controller.rb
 class Api::V1::PaymentsController < ::ApplicationController
   skip_before_action(:verify_authenticity_token, only: [:stripe_webhook], raise: false)
   before_action(:authorize_request, except: [:stripe_webhook, :success, :cancel])
