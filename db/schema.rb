@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_05_10_130902) do
+ActiveRecord::Schema[8.1].define(version: 2026_05_12_174625) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -78,6 +78,17 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_10_130902) do
     t.datetime "updated_at", null: false
     t.integer "view_count", default: 0
     t.index ["seq_id"], name: "index_chapters_on_seq_id", unique: true
+  end
+
+  create_table "comments", force: :cascade do |t|
+    t.integer "chapter_no", null: false
+    t.text "content"
+    t.datetime "created_at", null: false
+    t.integer "novel_id", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["novel_id", "chapter_no"], name: "index_comments_on_novel_id_and_chapter_no"
+    t.index ["user_id"], name: "index_comments_on_user_id"
   end
 
   create_table "follows", force: :cascade do |t|
@@ -203,6 +214,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_10_130902) do
     t.string "email"
     t.string "password_digest"
     t.string "pen_name"
+    t.datetime "reset_password_sent_at"
+    t.string "reset_password_token"
     t.string "role", default: "user"
     t.string "status", default: "active"
     t.string "stripe_account_id"

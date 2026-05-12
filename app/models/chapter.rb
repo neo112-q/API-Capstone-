@@ -8,10 +8,11 @@ class Chapter < ApplicationRecord
 
   validate(:must_be_sequential, on: :create)
 
-  # ✅ แก้ไข: ใช้ delete_all แทน destroy เพื่อ bypass composite key issues
   has_many(:unlocked_chapters, dependent: :delete_all, foreign_key: :novel_id)
   has_many(:chapter_likes, dependent: :delete_all, foreign_key: :novel_id)
   has_many(:chapter_views, dependent: :delete_all, foreign_key: :novel_id)
+
+  has_many(:comments, primary_key: :id, foreign_key: :chapter_id, dependent: :destroy)
   
   has_many(:likes, as: :likeable, dependent: :destroy)
   

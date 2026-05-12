@@ -19,6 +19,8 @@ Rails.application.routes.draw do
 
         # ส่วนของchapters
         resources(:chapters, only: [:index, :create, :update, :destroy, :show]) do
+
+          resources(:comments, only: [:index, :create, :destroy])
           member do
             post("toggle_like", to: "likes#toggle")
             post("unlock", to: "chapters#unlock")

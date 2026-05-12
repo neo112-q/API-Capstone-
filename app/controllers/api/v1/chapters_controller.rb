@@ -93,7 +93,6 @@ class Api::V1::ChaptersController < ::ApplicationController
     has_purchased_novel = @current_user && Purchase.exists?(user: @current_user, novel: novel)
     has_unlocked = @current_user && UnlockedChapter.exists?(user: @current_user, novel_id: novel.id, chapter_no: chapter.chapter_no)
     
-    # ✅ ตรวจสอบ pricing model
     case novel.pricing_model
     when 'free'
       # อ่านได้ทุกตอนฟรี
@@ -127,7 +126,7 @@ class Api::V1::ChaptersController < ::ApplicationController
       is_free_chapter = chapter.price.nil? || chapter.price == 0
     end
     
-    # ✅ เงื่อนไขการเข้าถึง
+    # เงื่อนไขการเข้าถึง
     if is_owner || is_free_chapter || has_purchased_novel || has_unlocked
       record_chapter_view(chapter)
       content = load_chapter_content(novel, chapter)
@@ -142,11 +141,11 @@ class Api::V1::ChaptersController < ::ApplicationController
         is_liked: is_liked,
         locked: false,
         price: chapter.price || 0,
-        free_date: chapter.free_date  # ✅ ส่งกลับไปด้วย
+        free_date: chapter.free_date  # ส่งกลับไปด้วย
       }, status: :ok)
     end
     
-    # ✅ กรณีต้องจ่าย
+    # กรณีต้องจ่าย
     if novel.pricing_model == 'one_time' && novel.price > 0 && !has_purchased_novel && !is_owner
       return render(json: { 
         locked: true, 
@@ -176,7 +175,6 @@ class Api::V1::ChaptersController < ::ApplicationController
 
     return render(json: { error: "ตอนนี้อ่านฟรี!" }, status: :bad_request) if !novel.is_premium || chapter.price == 0
     
-    # ✅ แก้ไขตรงนี้
     if UnlockedChapter.exists?(user_id: @current_user.id, novel_id: novel.id, chapter_no: chapter.chapter_no)
       return render(json: { error: "คุณปลดล็อคแล้ว!" }, status: :bad_request)
     end
@@ -188,7 +186,7 @@ class Api::V1::ChaptersController < ::ApplicationController
         @current_user.coin_balance -= chapter.price
         @current_user.save!
 
-        # ✅ สร้างโดยใช้ novel_id และ chapter_no
+        # สร้างโดยใช้ novel_id และ chapter_no
         UnlockedChapter.create!(
           user_id: @current_user.id,
           novel_id: novel.id,
@@ -281,18 +279,23 @@ class Api::V1::ChaptersController < ::ApplicationController
     object_key = "novel/#{novel.user_id}/#{novel.id}/#{chapter.chapter_no}.txt"
     
     begin
-      content = @s3_client.get_object(bucket: @bucket_name, key: object_key).body.read
-    rescue Aws::S3::Errors::NoSuchKey
-      content = ""
+      @s3_client.get_object(bucket: @bucket_name, key: object_key).body.read()
+    rescue => e
+      Rails.logger.error("S3 Error: #{e.message}")
+      "" 
     end
-    
-    content
   end
 
   # ตั้งค่า S3 Client (เชื่อมต่อ MinIO)
   def set_s3_client()
+    endpoint = ENV.fetch('MINIO_ENDPOINT', 'http://minio:9000')
+    
+    if endpoint.include?("mynovel_minio")
+      endpoint = "http://host.docker.internal:9000"
+    end
+
     @s3_client = Aws::S3::Client.new(
-      endpoint: ENV.fetch('MINIO_ENDPOINT', 'http://host.docker.internal:9000'),
+      endpoint: endpoint,
       access_key_id: "admin_o",
       secret_access_key: "password_o123",
       region: "us-east-1",

@@ -12,6 +12,7 @@ class User < ApplicationRecord
   has_many(:likes, dependent: :destroy)
   has_many(:purchases, dependent: :destroy)
   has_many(:reading_histories, dependent: :destroy)
+  has_many(:comments, dependent: :destroy)
 
   enum :role, { user: "user", admin: "admin" }
   enum :status, { active: "active", banned: "banned" }
