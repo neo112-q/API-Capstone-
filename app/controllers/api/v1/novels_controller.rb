@@ -37,11 +37,12 @@ class Api::V1::NovelsController < ::ApplicationController
       pen_name: pen_name,
       genres: genre_objects,
       status: params[:novel][:status] || 'draft',
-      is_premium: params[:novel][:is_premium] || false,  # ✅ เพิ่ม
+      is_premium: params[:novel][:is_premium] || false,
       price: params[:novel][:price] || 0,
       pricing_model: params[:novel][:pricing_model] || 'free',
       early_access_days: params[:novel][:early_access_days] || 7,
-      per_chapter_price: params[:novel][:per_chapter_price] || 0
+      per_chapter_price: params[:novel][:per_chapter_price] || 0,
+      tags: params[:novel][:tags] || []
     )
     
     if novel.save()
@@ -84,7 +85,6 @@ class Api::V1::NovelsController < ::ApplicationController
       novel.price = params[:novel][:price]
     end
 
-    # ✅ เพิ่ม 3 บรรทัดนี้ (สำคัญมาก!)
     if params[:novel][:pricing_model].present?
       novel.pricing_model = params[:novel][:pricing_model]
     end
@@ -95,6 +95,11 @@ class Api::V1::NovelsController < ::ApplicationController
 
     if params[:novel][:per_chapter_price].present?
       novel.per_chapter_price = params[:novel][:per_chapter_price]
+    end
+
+    # ให้เพิ่ม tags ได้
+    if params[:novel][:tags].present?
+      novel.tags = params[:novel][:tags]
     end
 
     if params[:cover_content].present?
@@ -138,7 +143,8 @@ class Api::V1::NovelsController < ::ApplicationController
       has_purchased: has_purchased,
       pricing_model: novel.pricing_model || 'free',
       early_access_days: novel.early_access_days || 7,
-      per_chapter_price: novel.per_chapter_price || 0             
+      per_chapter_price: novel.per_chapter_price || 0,
+      tags: novel.tags || []
     }, status: :ok)
   end
 
@@ -159,7 +165,8 @@ class Api::V1::NovelsController < ::ApplicationController
           likes: novel.likes.count,
           created_at: novel.created_at,
           updated_at: novel.updated_at,
-          genres: novel.genres.as_json(only: [:id, :name])
+          genres: novel.genres.as_json(only: [:id, :name]),
+          tags: novel.tags || []
         }
       end
       
@@ -173,7 +180,7 @@ class Api::V1::NovelsController < ::ApplicationController
   def destroy()
     novel = @current_user.novels.find(params[:id])
     
-    # ✅ ใช้ transaction และลบด้วย SQL โดยตรง
+    # transaction กับลบด้วย SQL ตรงเลย
     ActiveRecord::Base.transaction do
       # ลบข้อมูลที่เกี่ยวข้องทั้งหมด
       UnlockedChapter.where(novel_id: novel.id).delete_all
@@ -206,7 +213,7 @@ class Api::V1::NovelsController < ::ApplicationController
   private
 
   def novel_params()
-    params.require(:novel).permit(:title, :description, :cover_path)
+    params.require(:novel).permit(:title, :description, :cover_path, tags: [])
   end
 
   def sanitize_genres(genres_array)

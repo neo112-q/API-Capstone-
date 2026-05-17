@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_05_12_174625) do
+ActiveRecord::Schema[8.1].define(version: 2026_05_17_103519) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -138,6 +138,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_12_174625) do
     t.decimal "price", precision: 10, scale: 2, default: "0.0"
     t.string "pricing_model", default: "free"
     t.integer "status", default: 0
+    t.string "tags"
     t.string "title"
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
@@ -214,6 +215,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_12_174625) do
     t.string "email"
     t.string "password_digest"
     t.string "pen_name"
+    t.datetime "reset_password_sent_at"
+    t.string "reset_password_token"
     t.string "role", default: "user"
     t.string "status", default: "active"
     t.string "stripe_account_id"
