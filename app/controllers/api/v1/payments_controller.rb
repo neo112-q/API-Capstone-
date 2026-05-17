@@ -3,7 +3,7 @@ class Api::V1::PaymentsController < ::ApplicationController
   before_action(:authorize_request, except: [:stripe_webhook, :success, :cancel])
 
   # สร้าง Checkout Session ที่ Frontend เรียก
-  def create_checkout_session
+  def create_checkout_session()
     amount = params[:amount].to_i
     success_url = params[:success_url] || "#{request.base_url}/topup/success"
     cancel_url = params[:cancel_url] || "#{request.base_url}/topup"
@@ -14,7 +14,7 @@ class Api::V1::PaymentsController < ::ApplicationController
 
     begin
       session = Stripe::Checkout::Session.create({
-        payment_method_types: ['card', 'promptpay'],
+        payment_method_types: ['card'],
         line_items: [{
           price_data: {
             currency: 'thb',
@@ -41,12 +41,13 @@ class Api::V1::PaymentsController < ::ApplicationController
       render(json: { url: session.url }, status: :ok)
 
     rescue Stripe::StripeError => e
-      Rails.logger.error "Stripe Error: #{e.message}"
+      Rails.logger.error("Stripe Error: #{e.message}")
       render(json: { error: e.message }, status: :bad_request)
     end
   end
+
   # optional ไว้ใช้ในอนาคต
-  def create_intent
+  def create_intent()
     coin_amount = params[:coin_amount].to_i
     return render(json: { error: "จำนวนเหรียญไม่ถูกต้อง" }, status: :unprocessable_entity) if coin_amount <= 0
 
@@ -74,17 +75,17 @@ class Api::V1::PaymentsController < ::ApplicationController
     end
   end
 
-  def stripe_webhook
-    payload = request.body.read
+  def stripe_webhook()
+    payload = request.body.read()
     sig_header = request.env['HTTP_STRIPE_SIGNATURE']
     webhook_secret = ENV['STRIPE_WEBHOOK_SECRET']
 
-    Rails.logger.info "=== Webhook Received ==="
-    Rails.logger.info "Event Type: Checking..."
+    Rails.logger.info("=== Webhook Received ===")
+    Rails.logger.info("Event Type: Checking...")
 
     begin
       event = Stripe::Webhook.construct_event(payload, sig_header, webhook_secret)
-      Rails.logger.info "✅ Webhook verified: #{event.type}"
+      Rails.logger.info("✅ Webhook verified: #{event.type}")
 
       case event.type
       when 'checkout.session.completed'
@@ -95,15 +96,15 @@ class Api::V1::PaymentsController < ::ApplicationController
           user_id = session.metadata.user_id
           coin_amount = session.metadata.coin_amount.to_i
 
-          Rails.logger.info "Processing payment: user_id=#{user_id}, coins=#{coin_amount}"
+          Rails.logger.info("Processing payment: user_id=#{user_id}, coins=#{coin_amount}")
 
           # อัพเดทเหรียญ
           user = User.find_by(id: user_id)
           if user
             user.update_columns(coin_balance: user.coin_balance + coin_amount)
-            Rails.logger.info "✅ Added #{coin_amount} coins to user #{user_id}. New balance: #{user.coin_balance}"
+            Rails.logger.info("✅ Added #{coin_amount} coins to user #{user_id}. New balance: #{user.coin_balance}")
           else
-            Rails.logger.error "❌ User not found: #{user_id}"
+            Rails.logger.error("❌ User not found: #{user_id}")
           end
         end
 
@@ -115,29 +116,73 @@ class Api::V1::PaymentsController < ::ApplicationController
         user = User.find_by(id: user_id)
         if user
           user.update_columns(coin_balance: user.coin_balance + coin_amount)
-          Rails.logger.info "✅ Added #{coin_amount} coins via PaymentIntent"
+          Rails.logger.info("✅ Added #{coin_amount} coins via PaymentIntent")
         end
       end
 
       render(json: { status: 'success' }, status: :ok)
 
     rescue Stripe::SignatureVerificationError => e
-      Rails.logger.error "❌ Webhook signature verification failed: #{e.message}"
+      Rails.logger.error("❌ Webhook signature verification failed: #{e.message}")
       render(json: { error: 'Invalid signature' }, status: :bad_request)
     rescue => e
-      Rails.logger.error "❌ Webhook error: #{e.message}"
+      Rails.logger.error("❌ Webhook error: #{e.message}")
       render(json: { error: e.message }, status: :internal_server_error)
     end
   end
 
   # เพิ่ม endpoint สำหรับ success page
-  def success
+  def success()
     # หน้า success ให้ frontend
     # แค่ render JSON เพื่อให้ frontend รู้ว่า success
     render(json: { status: 'success', message: 'เติมเหรียญสำเร็จ' }, status: :ok)
   end
 
-  def cancel
+  def cancel()
     render(json: { status: 'cancelled', message: 'ยกเลิกการเติมเหรียญ' }, status: :ok)
+  end
+
+  # สร้างบัญชี Stripe Connect สำหรับให้นักเขียนรับเงิน
+  def create_connect_account()
+    if @current_user.stripe_account_id.blank?()
+      account = Stripe::Account.create({
+        type: 'standard',
+        country: 'TH',
+        email: @current_user.email
+      })
+      @current_user.update_columns(stripe_account_id: account.id)
+    end
+
+    refresh_url = params[:refresh_url] || "#{request.base_url}/api/v1/payments/connect/refresh"
+    return_url = params[:return_url] || "#{request.base_url}/api/v1/payments/connect/success"
+
+    account_link = Stripe::AccountLink.create({
+      account: @current_user.stripe_account_id,
+      refresh_url: refresh_url,
+      return_url: return_url,
+      type: 'account_onboarding'
+    })
+
+    render(json: { url: account_link.url }, status: :ok)
+  rescue Stripe::StripeError => e
+    render(json: { error: e.message }, status: :bad_request)
+  end
+
+  # เช็คสถานะว่านักเขียนยืนยันตัวตนกับ Stripe เสร็จหรือยัง
+  def check_connect_status()
+    if @current_user.stripe_account_id.blank?()
+      return render(json: { error: "ยังไม่มีบัญชี Stripe Connect" }, status: :not_found)
+    end
+
+    account = Stripe::Account.retrieve(@current_user.stripe_account_id)
+
+    render(json: {
+      account_id: account.id,
+      details_submitted: account.details_submitted,
+      charges_enabled: account.charges_enabled,
+      payouts_enabled: account.payouts_enabled
+    }, status: :ok)
+  rescue Stripe::StripeError => e
+    render(json: { error: e.message }, status: :bad_request)
   end
 end

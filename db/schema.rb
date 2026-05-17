@@ -214,8 +214,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_12_174625) do
     t.string "email"
     t.string "password_digest"
     t.string "pen_name"
-    t.datetime "reset_password_sent_at"
-    t.string "reset_password_token"
     t.string "role", default: "user"
     t.string "status", default: "active"
     t.string "stripe_account_id"

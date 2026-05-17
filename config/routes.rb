@@ -48,7 +48,8 @@ Rails.application.routes.draw do
 
         post("connect/onboarding", to: "payments#connect_onboarding")
       end
-
+      post("payments/connect/create", to: "payments#create_connect_account")
+      get("payments/connect/status", to: "payments#check_connect_status")
       post("webhooks/stripe", to: "payments#stripe_webhook")
     end
   end
