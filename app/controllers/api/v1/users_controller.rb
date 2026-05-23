@@ -163,7 +163,7 @@ class Api::V1::UsersController < ApplicationController
       content_type: file.content_type
     )
 
-    "#{ENV.fetch('MINIO_PUBLIC_ENDPOINT', 'http://naphon.ddns.net:9000')}/#{@bucket_name}/#{object_key}"
+    "#{ENV.fetch('API_BASE_URL', 'http://naphon.ddns.net:3000')}/api/v1/images/#{object_key}"
   end
 
   def user_as_json(user)

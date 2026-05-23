@@ -271,7 +271,7 @@ class Api::V1::NovelsController < ::ApplicationController
       content_disposition: "inline"
     )
 
-    return "#{ENV.fetch('MINIO_PUBLIC_ENDPOINT', 'http://naphon.ddns.net:9000')}/#{@bucket_name}/#{object_key}"
+    return "#{ENV.fetch('API_BASE_URL', 'http://naphon.ddns.net:3000')}/api/v1/images/#{object_key}"
   end
 
   def delete_cover_from_s3(novel)
