@@ -53,7 +53,7 @@ Rails.application.routes.draw do
       
       post("webhooks/stripe", to: "payments#stripe_webhook")
 
-      get("images/*key", to: "images#show")
+      get("images/*key", to: "images#show", format: false)
 
     end
   end
