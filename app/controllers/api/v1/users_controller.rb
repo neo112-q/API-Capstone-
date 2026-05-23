@@ -145,8 +145,8 @@ class Api::V1::UsersController < ApplicationController
   def set_s3_client
     @s3_client = Aws::S3::Client.new(
       endpoint: ENV.fetch('MINIO_ENDPOINT', 'http://host.docker.internal:9000'),
-      access_key_id: "admin_o",
-      secret_access_key: "password_o123",
+      access_key_id: ENV.fetch('MINIO_ACCESS_KEY', 'admin'),
+      secret_access_key: ENV.fetch('MINIO_SECRET_KEY', 'password123'),
       region: "us-east-1",
       force_path_style: true
     )
@@ -163,7 +163,7 @@ class Api::V1::UsersController < ApplicationController
       content_type: file.content_type
     )
 
-    "http://localhost:9000/#{@bucket_name}/#{object_key}?t=#{Time.now.to_i}"
+    "#{ENV.fetch('MINIO_PUBLIC_ENDPOINT', 'http://naphon.ddns.net:9000')}/#{@bucket_name}/#{object_key}?t=#{Time.now.to_i}"
   end
 
   def user_as_json(user)

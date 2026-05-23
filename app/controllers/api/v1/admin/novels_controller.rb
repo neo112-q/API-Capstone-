@@ -99,8 +99,8 @@ class Api::V1::Admin::NovelsController < ApplicationController
   def set_s3_client
     @s3_client = Aws::S3::Client.new(
       endpoint: ENV.fetch('MINIO_ENDPOINT', 'http://host.docker.internal:9000'),
-      access_key_id: ENV.fetch('MINIO_ACCESS_KEY', 'admin_o'),
-      secret_access_key: ENV.fetch('MINIO_SECRET_KEY', 'password_o123'),
+      access_key_id: ENV.fetch('MINIO_ACCESS_KEY', 'admin'),
+      secret_access_key: ENV.fetch('MINIO_SECRET_KEY', 'password123'),
       region: "us-east-1",
       force_path_style: true
     )

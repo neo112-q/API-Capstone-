@@ -8,7 +8,8 @@ FROM docker.io/library/ruby:$RUBY_VERSION-slim AS base
 WORKDIR /app
 
 # Install base packages (มี git ติดตั้งอยู่แล้วในชุดนี้) [cite: 3]
-RUN apt-get install --no-install-recommends -y build-essential git libpq-dev libvips libyaml-dev pkg-config libffi-dev && \
+RUN apt-get update -qq && \
+    apt-get install --no-install-recommends -y build-essential git libpq-dev libvips libyaml-dev pkg-config libffi-dev && \
     rm -rf /var/lib/apt/lists /var/cache/apt/archives
 
 # Set production environment variables [cite: 4]
@@ -21,7 +22,8 @@ ENV RAILS_ENV="production" \
 FROM base AS build
 
 # Install packages needed to build gems
-RUN apt-get install --no-install-recommends -y curl libjemalloc2 libvips postgresql-client nodejs npm libffi-dev && \
+RUN apt-get update -qq && \
+    apt-get install --no-install-recommends -y curl libjemalloc2 libvips postgresql-client nodejs npm libffi-dev && \
     ln -s /usr/lib/$(uname -m)-linux-gnu/libjemalloc.so.2 /usr/local/lib/libjemalloc.so && \
     rm -rf /var/lib/apt/lists /var/cache/apt/archives
 
@@ -30,7 +32,7 @@ RUN apt-get install --no-install-recommends -y curl libjemalloc2 libvips postgre
 # ---------------------------------------------------------
 # กำหนด ARG สำหรับรับค่า URL ของ Repository
 ARG GITHUB_REPO_URL=https://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@github.com/neo112-q/API-Capstone.git
-ARG GITHUB_BRANCH=main
+ARG GITHUB_BRANCH=fix4
 
 # Clone โค้ดจาก GitHub ลงใน WORKDIR (/app)
 RUN git clone -b ${GITHUB_BRANCH} ${GITHUB_REPO_URL} .
@@ -60,8 +62,4 @@ USER 1000:1000
 COPY --chown=rails:rails --from=build "${BUNDLE_PATH}" "${BUNDLE_PATH}"
 COPY --chown=rails:rails --from=build /app /app
 
-# อัปเดต Entrypoint ให้ใช้ path /app แทน /rails
-ENTRYPOINT ["/app/bin/docker-entrypoint"]
-
 EXPOSE 80
-CMD ["./bin/thrust", "./bin/rails", "server"]
