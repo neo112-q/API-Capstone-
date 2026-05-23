@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_05_02_064000) do
+ActiveRecord::Schema[8.1].define(version: 2026_05_19_130224) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -70,6 +70,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_02_064000) do
   create_table "chapters", primary_key: ["novel_id", "chapter_no"], force: :cascade do |t|
     t.integer "chapter_no", null: false
     t.datetime "created_at", null: false
+    t.integer "early_access_price", default: 0
     t.datetime "free_date"
     t.integer "novel_id", null: false
     t.integer "price", default: 0
@@ -78,6 +79,18 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_02_064000) do
     t.datetime "updated_at", null: false
     t.integer "view_count", default: 0
     t.index ["seq_id"], name: "index_chapters_on_seq_id", unique: true
+  end
+
+  create_table "comments", force: :cascade do |t|
+    t.integer "chapter_no", null: false
+    t.text "content", null: false
+    t.datetime "created_at", null: false
+    t.bigint "novel_id", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["novel_id", "chapter_no", "created_at"], name: "idx_comments_on_chapter"
+    t.index ["novel_id"], name: "index_comments_on_novel_id"
+    t.index ["user_id"], name: "index_comments_on_user_id"
   end
 
   create_table "follows", force: :cascade do |t|
@@ -127,6 +140,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_02_064000) do
     t.decimal "price", precision: 10, scale: 2, default: "0.0"
     t.string "pricing_model", default: "free"
     t.integer "status", default: 0
+    t.string "tags", default: [], array: true
     t.string "title"
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
@@ -203,9 +217,15 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_02_064000) do
     t.string "email"
     t.string "password_digest"
     t.string "pen_name"
+    t.datetime "reset_password_sent_at"
+    t.string "reset_password_token"
+    t.string "role", default: "user", null: false
+    t.string "status", default: "active", null: false
     t.string "stripe_customer_id"
     t.datetime "updated_at", null: false
     t.string "username"
+    t.index ["role"], name: "index_users_on_role"
+    t.index ["status"], name: "index_users_on_status"
   end
 
   add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
@@ -214,6 +234,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_02_064000) do
   add_foreign_key "chapter_views", "chapters", column: ["novel_id", "chapter_no"], primary_key: ["novel_id", "chapter_no"]
   add_foreign_key "chapter_views", "users"
   add_foreign_key "chapters", "novels"
+  add_foreign_key "comments", "novels"
+  add_foreign_key "comments", "users"
   add_foreign_key "follows", "novels"
   add_foreign_key "follows", "users"
   add_foreign_key "likes", "users"

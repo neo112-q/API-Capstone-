@@ -12,7 +12,8 @@ class Api::V1::ReadingHistoriesController < ::ApplicationController
         cover_path: h.novel.cover_path,  
         chapter_no: h.chapter_no,
         last_read_at: h.updated_at,
-        genres: h.novel.genres.as_json(only: [:id, :name])
+        genres: h.novel.genres.as_json(only: [:id, :name]),
+        tags: h.novel.tags || []
       }
     end
     

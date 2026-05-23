@@ -37,20 +37,27 @@ class Api::V1::NovelsController < ::ApplicationController
       pen_name: pen_name,
       genres: genre_objects,
       status: params[:novel][:status] || 'draft',
-      is_premium: params[:novel][:is_premium] || false,  # ✅ เพิ่ม
+      is_premium: params[:novel][:is_premium] || false,
       price: params[:novel][:price] || 0,
       pricing_model: params[:novel][:pricing_model] || 'free',
       early_access_days: params[:novel][:early_access_days] || 7,
-      per_chapter_price: params[:novel][:per_chapter_price] || 0
+      per_chapter_price: params[:novel][:per_chapter_price] || 0,
+      tags: params[:novel][:tags] || []
     )
     
     if novel.save()
+      # ✅ จัดการ cover (ทั้งรูปและอีโมจิ)
       if params[:cover_content].present?
         cover_url = upload_cover_to_s3(novel, params[:cover_content])
         novel.update_columns(cover_path: cover_url)
+        novel.reload
+      elsif params[:cover_emoji].present?
+        # ✅ ถ้าเป็นอีโมจิ ให้บันทึกเป็น string ตรงๆ
+        novel.update_columns(cover_path: params[:cover_emoji])
+        novel.reload
       end
 
-      render(json: novel, status: :created)
+      render(json: novel.as_json(only: [:id, :title, :cover_path, :tags]), status: :created)
     else
       render(json: { errors: novel.errors.full_messages }, status: :unprocessable_entity)
     end
@@ -60,12 +67,17 @@ class Api::V1::NovelsController < ::ApplicationController
   def update()
     novel = @current_user.novels.find(params[:id])
     
+    # อัปเดตข้อมูลพื้นฐาน
     if params[:novel][:title].present?
       novel.title = params[:novel][:title]
     end
     
     if params[:novel][:description].present?
       novel.description = params[:novel][:description]
+    end
+
+    if params[:novel][:pen_name].present?
+      novel.pen_name = params[:novel][:pen_name]
     end
     
     if params[:novel][:status].present?
@@ -84,7 +96,6 @@ class Api::V1::NovelsController < ::ApplicationController
       novel.price = params[:novel][:price]
     end
 
-    # ✅ เพิ่ม 3 บรรทัดนี้ (สำคัญมาก!)
     if params[:novel][:pricing_model].present?
       novel.pricing_model = params[:novel][:pricing_model]
     end
@@ -97,12 +108,18 @@ class Api::V1::NovelsController < ::ApplicationController
       novel.per_chapter_price = params[:novel][:per_chapter_price]
     end
 
+    if params[:novel][:tags].present?
+      novel.tags = params[:novel][:tags]
+    end
+
     if params[:cover_content].present?
       novel.cover_path = upload_cover_to_s3(novel, params[:cover_content])
+    elsif params[:cover_emoji].present?
+      novel.cover_path = params[:cover_emoji]
     end
 
     if novel.save()
-      render(json: novel, include: :genres)
+      render(json: novel.as_json(include: :genres).merge(tags: novel.tags), status: :ok)
     else
       render(json: { errors: novel.errors.full_messages }, status: :unprocessable_entity)
     end
@@ -121,13 +138,22 @@ class Api::V1::NovelsController < ::ApplicationController
 
     total_likes = ChapterLike.where(novel_id: novel.id).count
     
+    # ✅ จัดการ cover_path ให้ส่งกลับไป frontend ให้ถูกต้อง
+    cover_path_value = novel.cover_path
+    # ถ้า cover_path เป็นอีโมจิ (ความยาวน้อยกว่า 5 ตัว และไม่มี http หรือ /)
+    if cover_path_value.present? && cover_path_value.length <= 5 && !cover_path_value.include?('http') && !cover_path_value.include?('/')
+      # ส่งอีโมจิไปเลย
+      cover_path_value = cover_path_value
+    end
+    
     render(json: {
       id: novel.id,
       title: novel.title,
       pen_name: novel.pen_name,
       description: novel.description,
       genres: novel.genres,
-      cover_path: novel.cover_path,
+      tags: novel.tags || [],
+      cover_path: cover_path_value,  
       view_count: novel.total_views(),
       like_count: total_likes,
       follow_count: novel.follows.count,
@@ -138,7 +164,8 @@ class Api::V1::NovelsController < ::ApplicationController
       has_purchased: has_purchased,
       pricing_model: novel.pricing_model || 'free',
       early_access_days: novel.early_access_days || 7,
-      per_chapter_price: novel.per_chapter_price || 0             
+      per_chapter_price: novel.per_chapter_price || 0,
+      status: novel.status || 'draft' 
     }, status: :ok)
   end
 
@@ -159,7 +186,8 @@ class Api::V1::NovelsController < ::ApplicationController
           likes: novel.likes.count,
           created_at: novel.created_at,
           updated_at: novel.updated_at,
-          genres: novel.genres.as_json(only: [:id, :name])
+          genres: novel.genres.as_json(only: [:id, :name]),
+          tags: novel.tags || []
         }
       end
       

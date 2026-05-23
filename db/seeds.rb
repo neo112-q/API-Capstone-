@@ -1,3 +1,5 @@
+# db/seeds.rb
+
 genres_list = [
   "romance", "comedy", "girl love", "boy love", "fantasy", 
   "science", "fiction", "mystery", "war", "adventure", 
@@ -12,42 +14,49 @@ end
 
 puts "เพิ่มหมวดหมู่สำเร็จ! มีทั้งหมด #{Genre.count} หมวดหมู่"
 
-# ล้างข้อมูลเก่าทิ้งก่อน (เผื่อรันซ้ำนะ)
-puts "🧹 กำลังล้างข้อมูลเก่า..."
-UnlockedChapter.destroy_all
-Purchase.destroy_all
-Like.destroy_all
-Follow.destroy_all
-Chapter.destroy_all
-Novel.destroy_all
-User.destroy_all
+puts "กำลังล้างข้อมูลเก่า..."
 
-puts "👤 สร้าง User จำลอง..."
+begin
+  # ลบข้อมูลที่มี foreign key ก่อน
+  ActiveRecord::Base.connection.execute("DELETE FROM unlocked_chapters")
+  ActiveRecord::Base.connection.execute("DELETE FROM purchases")
+  ActiveRecord::Base.connection.execute("DELETE FROM chapter_likes")
+  ActiveRecord::Base.connection.execute("DELETE FROM chapter_views")
+  ActiveRecord::Base.connection.execute("DELETE FROM follows")
+  ActiveRecord::Base.connection.execute("DELETE FROM reading_histories")
+  ActiveRecord::Base.connection.execute("DELETE FROM novel_genres")
+  
+  # ลบ chapters ก่อน novels
+  ActiveRecord::Base.connection.execute("DELETE FROM chapters")
+  
+  # สุดท้ายค่อยลบ novels และ users
+  ActiveRecord::Base.connection.execute("DELETE FROM novels")
+  ActiveRecord::Base.connection.execute("DELETE FROM users")
+  
+  # reset sequence ให้ id เริ่มที่ 1 ใหม่
+  ActiveRecord::Base.connection.execute("ALTER SEQUENCE users_id_seq RESTART WITH 1")
+  ActiveRecord::Base.connection.execute("ALTER SEQUENCE novels_id_seq RESTART WITH 1")
+  
+rescue => e
+  puts "error: #{e.message}"
+end
+
+puts "สร้าง Admin สำหรับดูแลระบบ"
+
 admin = User.create!(
-  username: "admin_neo",
-  email: "admin@capstone.com",
-  password: "password123",
-  coin_balance: 1000000
+  username: "admin",
+  email: "admin@novelhub.com",
+  password: "admin123",
+  password_confirmation: "admin123",
+  coin_balance: 1_000_000,
+  role: "admin",
+  status: "active"
 )
 
-author = User.create!(
-  username: "writer_a",
-  email: "writer@capstone.com",
-  password: "password123",
-  coin_balance: 0
-)
-
-reader = User.create!(
-  username: "reader_bob",
-  email: "reader@capstone.com",
-  password: "password123",
-  coin_balance: 500
-)
-
-puts "🎉 สร้างข้อมูลจำลอง เสร็จสมบูรณ์!"
+puts "สร้างข้อมูลจำลอง เสร็จสมบูรณ์!"
 puts "-------------------------------------------"
-puts "📌 ข้อมูลสำหรับ Login ใน Postman:"
-puts "คนอ่าน (เอาไว้เทสซื้อ)   -> Email: reader@capstone.com / Pass: password123"
-puts "นักเขียน (เอาไว้รับ 60%) -> Email: writer@capstone.com / Pass: password123"
-puts "เสี่ย (เอาไว้รับ 40%) -> Email: admin@capstone.com  / Pass: password123"
+puts "   ข้อมูลสำหรับ Login:Admin"
+puts "   ADMIN:"
+puts "   Email: admin@novelhub.com"
+puts "   Password: admin123"
 puts "-------------------------------------------"

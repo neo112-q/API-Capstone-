@@ -15,7 +15,7 @@ class Api::V1::PaymentsController < ::ApplicationController
     
     begin
       session = Stripe::Checkout::Session.create({
-        payment_method_types: ['card', 'promptpay'],
+        payment_method_types: ['card'],
         line_items: [{
           price_data: {
             currency: 'thb',

@@ -15,6 +15,8 @@ class Chapter < ApplicationRecord
   
   has_many(:likes, as: :likeable, dependent: :destroy)
   
+  has_many(:comments, -> { order(created_at: :desc) }, foreign_key: [:novel_id, :chapter_no], dependent: :destroy)
+
   def chapter_likes
     ChapterLike.where(novel_id: novel_id, chapter_no: chapter_no)
   end

@@ -1,6 +1,15 @@
 Rails.application.routes.draw do
   namespace(:api) do
     namespace(:v1) do
+      
+      post("forgot_password", to: "passwords#forgot")
+      post("reset_password", to: "passwords#reset")
+
+      namespace :admin do
+        resources :users, only: [:index, :update, :destroy]
+        resources :novels, only: [:index, :update, :destroy] 
+      end
+      
       resources(:novels) do
         collection do
           get("my_novels", to: "novels#my_novels")
@@ -16,6 +25,7 @@ Rails.application.routes.draw do
         post("purchase", to: "purchases#create")
 
         resources(:chapters, only: [:index, :create, :update, :destroy, :show]) do
+          resources(:comments, only: [:index, :create, :destroy])
           member do
             post("toggle_like", to: "likes#toggle")
             post("unlock", to: "chapters#unlock")
@@ -26,8 +36,6 @@ Rails.application.routes.draw do
       resources(:reading_histories, only: [:index, :create, :destroy])
       
       get("user/liked_chapters", to: "users#liked_chapters")
-      
-      # ✅ เพิ่ม route สำหรับดึง unlocked chapters
       get("users/:user_id/unlocked_chapters", to: "users#unlocked_chapters")
       
       scope(:user) do

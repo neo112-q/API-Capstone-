@@ -10,7 +10,22 @@ class Api::V1::FollowsController < ::ApplicationController
 
   # R ดูนิยายที่ติดตามทั้งหมด
   def index()
-    render(json: { followed_novels: @current_user.followed_novels }, status: :ok)
+    followed_novels = @current_user.followed_novels
+    
+    result = followed_novels.map do |novel|
+      {
+        id: novel.id,
+        title: novel.title,
+        pen_name: novel.pen_name,
+        description: novel.description,
+        cover_path: novel.cover_path,
+        status: novel.status,
+        genres: novel.genres.as_json(only: [:id, :name]),
+        tags: novel.tags || []   # ✅ เพิ่ม tags
+      }
+    end
+    
+    render(json: { followed_novels: result }, status: :ok)
   end
 
   # D เลิกติดตาม
