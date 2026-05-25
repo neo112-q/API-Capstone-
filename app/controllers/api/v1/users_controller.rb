@@ -49,8 +49,11 @@ class Api::V1::UsersController < ApplicationController
       bio: @current_user.bio,
       avatar_path: @current_user.avatar_path,
       coin_balance: @current_user.coin_balance,
-      role: @current_user.role,        # ✅ เพิ่ม role
-      status: @current_user.status     # ✅ เพิ่ม status
+      earnings_balance: @current_user.earnings_balance,
+      stripe_account_id: @current_user.stripe_account_id,
+      stripe_charges_enabled: @current_user.stripe_charges_enabled,
+      role: @current_user.role,
+      status: @current_user.status
     }, status: :ok
   end
 

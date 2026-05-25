@@ -53,6 +53,12 @@ Rails.application.routes.draw do
       
       post("webhooks/stripe", to: "payments#stripe_webhook")
 
+      scope(:stripe_connect) do
+        post("onboard", to: "stripe_connect#onboard")
+        get("status", to: "stripe_connect#status")
+        get("dashboard", to: "stripe_connect#dashboard")
+      end
+
       get("images/*key", to: "images#show", format: false)
 
     end
