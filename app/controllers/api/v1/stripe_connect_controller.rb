@@ -90,6 +90,84 @@ class Api::V1::StripeConnectController < ::ApplicationController
     render(json: { error: e.message }, status: :bad_request)
   end
 
+  def payout
+    if @current_user.stripe_account_id.blank? || !@current_user.stripe_charges_enabled
+      return render(json: { error: 'คุณยังไม่ได้เชื่อมต่อ Stripe' }, status: :bad_request)
+    end
+
+    amount_coins = params[:amount].to_i
+    payout_options = [1000, 2000, 5000, 10000]
+
+    unless payout_options.include?(amount_coins)
+      return render(json: { error: 'จำนวนถอนไม่ถูกต้อง กรุณาเลือกจากตัวเลือกที่กำหนด', allowed: payout_options }, status: :unprocessable_entity)
+    end
+
+    if @current_user.earnings_balance < amount_coins
+      return render(json: { error: 'ยอดรายได้ของคุณไม่เพียงพอสำหรับการถอน', balance: @current_user.earnings_balance }, status: :unprocessable_entity)
+    end
+
+    amount_thb = amount_coins
+
+    payout_record = @current_user.payouts.new(
+      amount_coins: amount_coins,
+      amount_thb: amount_thb,
+      status: 'pending'
+    )
+
+    begin
+      transfer = Stripe::Transfer.create({
+        amount: amount_thb * 100,
+        currency: 'thb',
+        destination: @current_user.stripe_account_id,
+        metadata: {
+          user_id: @current_user.id,
+          coin_amount: amount_coins
+        }
+      })
+
+      payout_record.stripe_transfer_id = transfer.id
+      payout_record.status = 'completed'
+
+      ActiveRecord::Base.transaction do
+        payout_record.save!
+        @current_user.update!(earnings_balance: @current_user.earnings_balance - amount_coins)
+      end
+
+      render(json: {
+        status: 'completed',
+        amount: amount_coins,
+        new_balance: @current_user.earnings_balance,
+        transfer_id: transfer.id,
+        message: "ถอน #{amount_coins} เหรียญสำเร็จ (ประมาณ #{amount_thb} บาท) เงินจะเข้าบัญชีธนาคารของคุณภายใน 2-7 วันทำการ"
+      }, status: :ok)
+
+    rescue Stripe::StripeError => e
+      payout_record.status = 'failed'
+      payout_record.error_message = e.message
+      payout_record.save!
+
+      Rails.logger.error "Stripe payout error: #{e.message}"
+      render(json: { error: "การโอนเงินล้มเหลว: #{e.message}" }, status: :bad_request)
+    end
+  end
+
+  def payout_history
+    payouts = @current_user.payouts.recent.limit(20)
+
+    render(json: {
+      payouts: payouts.map { |p|
+        {
+          id: p.id,
+          amount_coins: p.amount_coins,
+          amount_thb: p.amount_thb,
+          status: p.status,
+          created_at: p.created_at,
+          error_message: p.error_message
+        }
+      }
+    }, status: :ok)
+  end
+
   private
 
   def frontend_url

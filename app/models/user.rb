@@ -10,6 +10,7 @@ class User < ApplicationRecord
   has_many(:unlocked_chapters, dependent: :destroy)
   has_many(:likes, dependent: :destroy)
   has_many(:purchases, dependent: :destroy)
+  has_many(:payouts, dependent: :destroy)
   has_many(:reading_histories, dependent: :destroy)
   has_many(:comments, dependent: :destroy)
   enum :role, { user: "user", admin: "admin" }, default: "user"
