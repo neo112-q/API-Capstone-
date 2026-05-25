@@ -1,5 +1,5 @@
 class AddDescriptionToNovels < ActiveRecord::Migration[8.1]
   def change
-    add_column :novels, :description, :text
+    add_column :novels, :description, :text unless column_exists?(:novels, :description)
   end
 end
