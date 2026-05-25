@@ -18,7 +18,8 @@ class Api::V1::StripeConnectController < ::ApplicationController
                   country: 'TH',
                   email: @current_user.email,
                   capabilities: {
-                    transfers: { requested: true }
+                    transfers: { requested: true },
+                    card_payments: { requested: true }
                   },
                   business_type: 'individual'
                 })
@@ -28,8 +29,8 @@ class Api::V1::StripeConnectController < ::ApplicationController
 
     account_link = Stripe::AccountLink.create({
       account: account.id,
-      refresh_url: "#{frontend_url}/settings?stripe=refresh",
-      return_url: "#{frontend_url}/settings?stripe=success",
+      refresh_url: "#{frontend_url}/earnings?stripe=refresh",
+      return_url: "#{frontend_url}/earnings?stripe=success",
       type: 'account_onboarding'
     })
 
