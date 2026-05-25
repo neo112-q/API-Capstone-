@@ -1,3 +1,5 @@
+require 'base64'
+
 class Api::V1::NovelsController < ::ApplicationController
   # เรียก Token เฉพาะตอน C, U, D
   before_action(:authorize_request, only: [:create, :update, :destroy, :my_novels])
@@ -12,16 +14,19 @@ class Api::V1::NovelsController < ::ApplicationController
 
   # ดูได้ทุกคนนะ
   def index()
-    novels = Novel.where(status: :published).order(updated_at: :desc)
-    
+    novels = Novel.where(status: :published).order(updated_at: :desc).includes(:genres)
+    novel_ids = novels.map(&:id)
+
+    likes_by_novel = ChapterLike.where(novel_id: novel_ids).group(:novel_id).count
+    views_by_novel = ChapterView.where(novel_id: novel_ids).group(:novel_id).count
+
     novels_with_views = novels.map do |novel|
-      total_likes = ChapterLike.where(novel_id: novel.id).count
       novel.as_json(include: :genres).merge(
-        view_count: novel.total_views,
-        like_count: total_likes
+        view_count: views_by_novel[novel.id] || 0,
+        like_count: likes_by_novel[novel.id] || 0
       )
     end
-    
+
     render(json: novels_with_views)
   end
 
@@ -171,8 +176,13 @@ class Api::V1::NovelsController < ::ApplicationController
 
   def my_novels()
     begin
-      novels = @current_user.novels.order(updated_at: :desc)
-      
+      novels = @current_user.novels.order(updated_at: :desc).includes(:genres)
+      novel_ids = novels.map(&:id)
+
+      likes_by_novel = ChapterLike.where(novel_id: novel_ids).group(:novel_id).count
+      views_by_novel = ChapterView.where(novel_id: novel_ids).group(:novel_id).count
+      chapter_counts = Chapter.where(novel_id: novel_ids).group(:novel_id).count
+
       result = novels.map do |novel|
         {
           id: novel.id,
@@ -181,16 +191,16 @@ class Api::V1::NovelsController < ::ApplicationController
           pen_name: novel.pen_name,
           cover_path: novel.cover_path,
           status: novel.status,
-          chapters_count: novel.chapters.count,
-          views: novel.total_views(),
-          likes: novel.likes.count,
+          chapters_count: chapter_counts[novel.id] || 0,
+          views: views_by_novel[novel.id] || 0,
+          likes: likes_by_novel[novel.id] || 0,
           created_at: novel.created_at,
           updated_at: novel.updated_at,
           genres: novel.genres.as_json(only: [:id, :name]),
           tags: novel.tags || []
         }
       end
-      
+
       render(json: result, status: :ok)
     rescue => e
       puts "Error in my_novels: #{e.message}"
@@ -200,30 +210,25 @@ class Api::V1::NovelsController < ::ApplicationController
 
   def destroy()
     novel = @current_user.novels.find(params[:id])
-    
-    # ✅ ใช้ transaction และลบด้วย SQL โดยตรง
+
     ActiveRecord::Base.transaction do
-      # ลบข้อมูลที่เกี่ยวข้องทั้งหมด
       UnlockedChapter.where(novel_id: novel.id).delete_all
       ChapterLike.where(novel_id: novel.id).delete_all
       ChapterView.where(novel_id: novel.id).delete_all
       ReadingHistory.where(novel_id: novel.id).delete_all
       Follow.where(novel_id: novel.id).delete_all
       Purchase.where(novel_id: novel.id).delete_all
+      Comment.where(novel_id: novel.id).delete_all
       NovelGenre.where(novel_id: novel.id).delete_all
-      
-      # ลบ chapters
       Chapter.where(novel_id: novel.id).delete_all
-      
-      # ลบ cover
-      delete_cover_from_s3(novel) if novel.cover_path.present?
-      
-      # ลบนิยาย
-      novel.destroy
+      Like.where(likeable_type: 'Novel', likeable_id: novel.id).delete_all
+      novel.destroy!
     end
-    
+
+    delete_cover_from_s3(novel) if image_cover?(novel.cover_path)
+
     render(json: { message: "Your novel has been deleted" }, status: :ok)
-    
+
   rescue ActiveRecord::RecordNotFound
     render(json: { error: "You don't have permission to delete this novel" }, status: :forbidden)
   rescue => e
@@ -275,7 +280,16 @@ class Api::V1::NovelsController < ::ApplicationController
   end
 
   def delete_cover_from_s3(novel)
-    object_key = "covers/#{novel.id}.png"
-    @s3_client.delete_object(bucket: @bucket_name, key: object_key)
+    return unless image_cover?(novel.cover_path)
+    begin
+      object_key = "covers/#{novel.id}.png"
+      @s3_client.delete_object(bucket: @bucket_name, key: object_key)
+    rescue => e
+      Rails.logger.error "S3 delete cover error: #{e.message}"
+    end
+  end
+
+  def image_cover?(path)
+    path.present? && (path.start_with?('http://', 'https://') || path.include?('/'))
   end
 end
