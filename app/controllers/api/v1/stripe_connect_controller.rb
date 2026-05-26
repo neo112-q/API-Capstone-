@@ -2,14 +2,17 @@ class Api::V1::StripeConnectController < ::ApplicationController
   before_action :authorize_request
 
   def onboard
-    if @current_user.stripe_account_id.present? && @current_user.stripe_charges_enabled
+    if @current_user.stripe_account_id.present?
       account = retrieve_stripe_account
-      if account && account.charges_enabled
-        return render(json: {
-          status: 'connected',
-          message: 'คุณเชื่อมต่อ Stripe แล้ว',
-          stripe_account_id: @current_user.stripe_account_id
-        }, status: :ok)
+      if account
+        transfers_ready = account.details_submitted && account.capabilities&.transfers == 'active'
+        if transfers_ready || account.charges_enabled
+          return render(json: {
+            status: 'connected',
+            message: 'คุณเชื่อมต่อ Stripe แล้ว',
+            stripe_account_id: @current_user.stripe_account_id
+          }, status: :ok)
+        end
       end
     end
 
@@ -65,16 +68,17 @@ class Api::V1::StripeConnectController < ::ApplicationController
       }, status: :ok)
     end
 
-    charges_enabled = account.charges_enabled
+    transfers_ready = account.details_submitted && account.capabilities&.transfers == 'active'
+    ready = transfers_ready || account.charges_enabled
 
-    @current_user.update_columns(stripe_charges_enabled: charges_enabled) if charges_enabled != @current_user.stripe_charges_enabled
+    @current_user.update_columns(stripe_charges_enabled: ready) if ready != @current_user.stripe_charges_enabled
 
     render(json: {
-      connected: charges_enabled,
-      onboarding_incomplete: !charges_enabled && account.details_submitted != true,
+      connected: ready,
+      onboarding_incomplete: !ready,
       stripe_account_id: @current_user.stripe_account_id,
       earnings_balance: @current_user.earnings_balance,
-      charges_enabled: charges_enabled
+      charges_enabled: ready
     }, status: :ok)
 
   rescue Stripe::StripeError => e
@@ -104,8 +108,14 @@ class Api::V1::StripeConnectController < ::ApplicationController
   end
 
   def payout
-    if @current_user.stripe_account_id.blank? || !@current_user.stripe_charges_enabled
-      return render(json: { error: 'คุณยังไม่ได้เชื่อมต่อ Stripe' }, status: :bad_request)
+    account = retrieve_stripe_account
+    if account.nil?
+      return render(json: { error: 'คุณยังไม่ได้เชื่อมต่อ Stripe หรือบัญชีถูกยกเลิก' }, status: :bad_request)
+    end
+
+    transfers_ready = account.details_submitted && account.capabilities&.transfers == 'active'
+    unless transfers_ready || account.charges_enabled
+      return render(json: { error: 'บัญชี Stripe ของคุณยังตั้งค่าไม่เสร็จ กรุณาดำเนินการให้เสร็จสิ้น' }, status: :bad_request)
     end
 
     amount_coins = params[:amount].to_i
