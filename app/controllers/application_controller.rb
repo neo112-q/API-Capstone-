@@ -39,7 +39,7 @@ class ApplicationController < ActionController::API
 
         if ready
           Stripe::Transfer.create({
-            amount: amount * 100,
+            amount: (amount * 100).to_i,
             currency: 'thb',
             destination: author.stripe_account_id,
             metadata: {
