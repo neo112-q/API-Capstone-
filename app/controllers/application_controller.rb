@@ -28,6 +28,29 @@ class ApplicationController < ActionController::API
     end
   end
 
+  def transfer_author_revenue(author, amount)
+    return if amount <= 0
+
+    if author.stripe_account_id.present? && author.stripe_charges_enabled
+      begin
+        Stripe::Transfer.create({
+          amount: amount * 100,
+          currency: 'thb',
+          destination: author.stripe_account_id,
+          metadata: {
+            user_id: author.id,
+            coin_amount: amount
+          }
+        })
+        return
+      rescue Stripe::StripeError => e
+        Rails.logger.warn "Auto-transfer to author #{author.id} failed: #{e.message}"
+      end
+    end
+
+    author.update!(earnings_balance: author.earnings_balance + amount)
+  end
+
   # ✅ method ตรวจสอบ admin
   def authorize_admin
     is_admin = false

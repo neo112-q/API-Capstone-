@@ -20,7 +20,7 @@ class Api::V1::PurchasesController < ::ApplicationController
       purchase.save!
       
       author = novel.user
-      author.update!(earnings_balance: author.earnings_balance + purchase.author_revenue)
+      transfer_author_revenue(author, purchase.author_revenue)
     end
 
     # ✅ reload ให้ได้ค่าล่าสุด
