@@ -1,5 +1,5 @@
 class Api::V1::ChaptersController < ::ApplicationController
-  before_action :authorize_request, except: [:index]
+  before_action :authorize_request, except: [:index, :show]
   before_action -> { authorize_request(optional: true) }, only: [:show]
   before_action :set_s3_client
 
