@@ -7,18 +7,24 @@ class Api::V1::ChaptersController < ::ApplicationController
   def index()
     novel = Novel.find(params[:novel_id])
     chapters = novel.chapters.order(:chapter_no)
-    
+    is_owner = @current_user && novel.user_id == @current_user.id
+    has_purchased_novel = @current_user && Purchase.exists?(user: @current_user, novel: novel)
+
     result = chapters.map do |ch|
+      has_unlocked = @current_user && UnlockedChapter.exists?(user: @current_user, novel_id: novel.id, chapter_no: ch.chapter_no)
+      has_access = chapter_accessible?(novel, ch, is_owner, has_purchased_novel, has_unlocked)
+
       {
         id: ch.id,
         chapter_no: ch.chapter_no,
         title: ch.title,
-        content: load_chapter_content(novel, ch),
+        content: has_access ? load_chapter_content(novel, ch) : "",
         view_count: ch.view_count,
         like_count: ch.likes_count,
         is_liked: @current_user ? ch.is_liked_by?(@current_user) : false,
         price: ch.price || 0,
-        free_date: ch.free_date&.iso8601  # ✅ ส่งเป็น ISO 8601 พร้อม timezone
+        free_date: ch.free_date&.iso8601,
+        locked: !has_access
       }
     end
 
@@ -95,49 +101,20 @@ class Api::V1::ChaptersController < ::ApplicationController
   def show()
     novel = Novel.find(params[:novel_id])
     chapter = novel.chapters.find_by!(chapter_no: params[:id])
-    
+
     is_owner = @current_user && novel.user_id == @current_user.id
     has_purchased_novel = @current_user && Purchase.exists?(user: @current_user, novel: novel)
     has_unlocked = @current_user && UnlockedChapter.exists?(user: @current_user, novel_id: novel.id, chapter_no: chapter.chapter_no)
-    
-    case novel.pricing_model
-    when 'free'
-      is_free_chapter = true
-    when 'one_time'
-      is_free_chapter = (is_owner || has_purchased_novel)
-    when 'per_chapter'
-      if chapter.chapter_no == 1 && (chapter.price.nil? || chapter.price == 0)
-        is_free_chapter = true
-      else
-        is_free_chapter = has_unlocked
-      end
-    when 'early_access'
-      # ✅ เช็ค free_date ให้ถูกต้อง
-      if chapter.free_date.present?
-        if Time.current >= chapter.free_date
-          is_free_chapter = true
-        else
-          is_free_chapter = has_unlocked
-        end
-      else
-        if chapter.price.nil? || chapter.price.to_i == 0
-          is_free_chapter = true
-        else
-          is_free_chapter = has_unlocked
-        end
-      end
-    else
-      is_free_chapter = chapter.price.nil? || chapter.price == 0
-    end
-    
-    if is_owner || is_free_chapter || has_purchased_novel || has_unlocked
+    has_access = chapter_accessible?(novel, chapter, is_owner, has_purchased_novel, has_unlocked)
+
+    if has_access
       record_chapter_view(chapter)
       content = load_chapter_content(novel, chapter)
       like_count = ChapterLike.where(novel_id: novel.id, chapter_no: chapter.chapter_no).count
       is_liked = @current_user ? ChapterLike.exists?(user_id: @current_user.id, novel_id: novel.id, chapter_no: chapter.chapter_no) : false
 
-      return render(json: { 
-        chapter: chapter, 
+      return render(json: {
+        chapter: chapter,
         content: content,
         view_count: chapter.view_count,
         like_count: like_count,
@@ -147,27 +124,23 @@ class Api::V1::ChaptersController < ::ApplicationController
         free_date: chapter.free_date&.iso8601
       }, status: :ok)
     end
-    
-    if novel.pricing_model == 'one_time' && novel.price > 0 && !has_purchased_novel && !is_owner
-      return render(json: { 
-        locked: true, 
+
+    if novel.pricing_model == 'one_time' && novel.price > 0
+      return render(json: {
+        locked: true,
         requires_purchase: true,
         price: novel.price,
         message: "กรุณาซื้อนิยายก่อนราคา #{novel.price} เหรียญ"
       }, status: :payment_required)
     end
-    
-    if !is_free_chapter && !has_unlocked
-      price_to_show = chapter.price || 0
-      return render(json: { 
-        locked: true, 
-        requires_purchase: false,
-        price: price_to_show,
-        message: "ปลดล็อคตอนนี้ราคา #{price_to_show} เหรียญ"
-      }, status: :payment_required)
-    end
 
-    render(json: { error: "ไม่สามารถเข้าถึงตอนนี้ได้" }, status: :forbidden)
+    price_to_show = chapter.price || 0
+    render(json: {
+      locked: true,
+      requires_purchase: false,
+      price: price_to_show,
+      message: "ปลดล็อคตอนนี้ราคา #{price_to_show} เหรียญ"
+    }, status: :payment_required)
   end
 
   # POST /api/v1/novels/:novel_id/chapters/:id/unlock
@@ -193,7 +166,7 @@ class Api::V1::ChaptersController < ::ApplicationController
         UnlockedChapter.create!(
           user_id: @current_user.id,
           novel_id: novel.id,
-          chapter_id: chapter.id,
+          chapter_id: chapter.seq_id,
           chapter_no: chapter.chapter_no,
           price_paid: price_to_pay
         )
@@ -258,6 +231,27 @@ class Api::V1::ChaptersController < ::ApplicationController
     rescue => e
       Rails.logger.error "Error parsing date: #{date_string}, error: #{e.message}"
       nil
+    end
+  end
+
+  def chapter_accessible?(novel, chapter, is_owner, has_purchased_novel, has_unlocked)
+    return true if is_owner || has_purchased_novel || has_unlocked
+
+    case novel.pricing_model
+    when 'free'
+      true
+    when 'one_time'
+      false
+    when 'per_chapter'
+      chapter.chapter_no == 1 && (chapter.price.nil? || chapter.price == 0)
+    when 'early_access'
+      if chapter.free_date.present?
+        Time.current >= chapter.free_date
+      else
+        chapter.price.nil? || chapter.price.to_i == 0
+      end
+    else
+      chapter.price.nil? || chapter.price == 0
     end
   end
 
