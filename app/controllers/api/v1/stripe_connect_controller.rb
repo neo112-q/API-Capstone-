@@ -165,13 +165,27 @@ class Api::V1::StripeConnectController < ::ApplicationController
       }, status: :ok)
 
     rescue Stripe::StripeError => e
-      payout_record.status = 'failed'
-      payout_record.error_message = e.message
-      payout_record.save!
+      if e.message.include?('insufficient available funds')
+        payout_record.status = 'pending'
+        payout_record.error_message = e.message
+        payout_record.save!
 
-      clear_stripe_if_invalid(e)
-      Rails.logger.error "Stripe payout error: #{e.message}"
-      render(json: { error: "การโอนเงินล้มเหลว: #{e.message}" }, status: :bad_request)
+        Rails.logger.warn "Stripe payout pending (insufficient platform balance): #{e.message}"
+        render(json: {
+          status: 'pending',
+          amount: amount_coins,
+          balance: @current_user.earnings_balance,
+          message: 'คำขอถอนถูกบันทึกแล้ว ระบบจะดำเนินการเมื่อมีเงินในบัญชี Stripe (ในโหมดทดสอบ กรุณาใช้ test card 4000000000000077 เพื่อเติมเงินแพลตฟอร์ม)'
+        }, status: :ok)
+      else
+        payout_record.status = 'failed'
+        payout_record.error_message = e.message
+        payout_record.save!
+
+        clear_stripe_if_invalid(e)
+        Rails.logger.error "Stripe payout error: #{e.message}"
+        render(json: { error: "การโอนเงินล้มเหลว: #{e.message}" }, status: :bad_request)
+      end
     end
   end
 

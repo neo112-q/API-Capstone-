@@ -24,6 +24,7 @@ RUN apt-get update -qq && \
     apt-get install --no-install-recommends -y libjemalloc2 libvips42 postgresql-client nodejs npm && \
     ln -s /usr/lib/$(uname -m)-linux-gnu/libjemalloc.so.2 /usr/local/lib/libjemalloc.so && \
     rm -rf /var/lib/apt/lists /var/cache/apt/archives
+ARG CACHE_BUST=1
 
 ARG GITHUB_REPO_URL=https://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@github.com/neo112-q/API-Capstone.git
 ARG GITHUB_BRANCH=fix4
