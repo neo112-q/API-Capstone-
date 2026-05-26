@@ -3,28 +3,32 @@ class Api::V1::StripeConnectController < ::ApplicationController
 
   def onboard
     if @current_user.stripe_account_id.present? && @current_user.stripe_charges_enabled
-      return render(json: {
-        status: 'connected',
-        message: 'คุณเชื่อมต่อ Stripe แล้ว',
-        stripe_account_id: @current_user.stripe_account_id
-      }, status: :ok)
+      account = retrieve_stripe_account
+      if account && account.charges_enabled
+        return render(json: {
+          status: 'connected',
+          message: 'คุณเชื่อมต่อ Stripe แล้ว',
+          stripe_account_id: @current_user.stripe_account_id
+        }, status: :ok)
+      end
     end
 
     account = if @current_user.stripe_account_id.present?
-                Stripe::Account.retrieve(@current_user.stripe_account_id)
-              else
-                Stripe::Account.create({
-                  type: 'express',
-                  country: 'TH',
-                  email: @current_user.email,
-                  capabilities: {
-                    transfers: { requested: true },
-                    card_payments: { requested: true }
-                  },
-                  business_type: 'individual',
-                  tos_acceptance: { service_agreement: 'recipient' }
-                })
+                acc = retrieve_stripe_account
+                acc if acc
               end
+
+    account ||= Stripe::Account.create({
+      type: 'express',
+      country: 'TH',
+      email: @current_user.email,
+      capabilities: {
+        transfers: { requested: true },
+        card_payments: { requested: true }
+      },
+      business_type: 'individual',
+      tos_acceptance: { service_agreement: 'recipient' }
+    })
 
     @current_user.update_columns(stripe_account_id: account.id)
 
@@ -54,25 +58,32 @@ class Api::V1::StripeConnectController < ::ApplicationController
       }, status: :ok)
     end
 
-    begin
-      account = Stripe::Account.retrieve(@current_user.stripe_account_id)
-      charges_enabled = account.charges_enabled
-
-      @current_user.update_columns(stripe_charges_enabled: charges_enabled) if charges_enabled != @current_user.stripe_charges_enabled
-
-      render(json: {
-        connected: charges_enabled,
-        stripe_account_id: @current_user.stripe_account_id,
-        earnings_balance: @current_user.earnings_balance,
-        charges_enabled: charges_enabled
-      }, status: :ok)
-    rescue Stripe::StripeError => e
-      render(json: {
+    account = retrieve_stripe_account
+    if account.nil?
+      return render(json: {
         connected: false,
-        earnings_balance: @current_user.earnings_balance,
-        error: e.message
+        earnings_balance: @current_user.earnings_balance
       }, status: :ok)
     end
+
+    charges_enabled = account.charges_enabled
+
+    @current_user.update_columns(stripe_charges_enabled: charges_enabled) if charges_enabled != @current_user.stripe_charges_enabled
+
+    render(json: {
+      connected: charges_enabled,
+      stripe_account_id: @current_user.stripe_account_id,
+      earnings_balance: @current_user.earnings_balance,
+      charges_enabled: charges_enabled
+    }, status: :ok)
+
+  rescue Stripe::StripeError => e
+    Rails.logger.error "Stripe status error: #{e.message}"
+    render(json: {
+      connected: false,
+      earnings_balance: @current_user.earnings_balance,
+      error: e.message
+    }, status: :ok)
   end
 
   def dashboard
@@ -88,6 +99,7 @@ class Api::V1::StripeConnectController < ::ApplicationController
 
   rescue Stripe::StripeError => e
     Rails.logger.error "Stripe dashboard link error: #{e.message}"
+    clear_stripe_if_invalid(e)
     render(json: { error: e.message }, status: :bad_request)
   end
 
@@ -147,6 +159,7 @@ class Api::V1::StripeConnectController < ::ApplicationController
       payout_record.error_message = e.message
       payout_record.save!
 
+      clear_stripe_if_invalid(e)
       Rails.logger.error "Stripe payout error: #{e.message}"
       render(json: { error: "การโอนเงินล้มเหลว: #{e.message}" }, status: :bad_request)
     end
@@ -170,6 +183,23 @@ class Api::V1::StripeConnectController < ::ApplicationController
   end
 
   private
+
+  def retrieve_stripe_account
+    Stripe::Account.retrieve(@current_user.stripe_account_id)
+  rescue Stripe::StripeError => e
+    Rails.logger.warn "Stripe account #{@current_user.stripe_account_id} inaccessible: #{e.message}"
+    clear_stripe_if_invalid(e)
+    nil
+  end
+
+  def clear_stripe_if_invalid(error)
+    return unless error.is_a?(Stripe::PermissionError) || error.is_a?(Stripe::InvalidRequestError)
+
+    @current_user.update_columns(
+      stripe_account_id: nil,
+      stripe_charges_enabled: false
+    )
+  end
 
   def frontend_url
     ENV.fetch('FRONTEND_URL', 'http://localhost:4200')
