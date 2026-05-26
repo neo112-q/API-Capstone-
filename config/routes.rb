@@ -59,6 +59,7 @@ Rails.application.routes.draw do
         get("dashboard", to: "stripe_connect#dashboard")
         post("payout", to: "stripe_connect#payout")
         get("payouts", to: "stripe_connect#payout_history")
+        post("disconnect", to: "stripe_connect#disconnect")
       end
 
       get("images/*key", to: "images#show", format: false)

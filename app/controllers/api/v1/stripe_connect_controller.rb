@@ -72,6 +72,7 @@ class Api::V1::StripeConnectController < ::ApplicationController
 
     render(json: {
       connected: charges_enabled,
+      onboarding_incomplete: !charges_enabled && account.details_submitted != true,
       stripe_account_id: @current_user.stripe_account_id,
       earnings_balance: @current_user.earnings_balance,
       charges_enabled: charges_enabled
@@ -163,6 +164,18 @@ class Api::V1::StripeConnectController < ::ApplicationController
       Rails.logger.error "Stripe payout error: #{e.message}"
       render(json: { error: "การโอนเงินล้มเหลว: #{e.message}" }, status: :bad_request)
     end
+  end
+
+  def disconnect
+    @current_user.update_columns(
+      stripe_account_id: nil,
+      stripe_charges_enabled: false
+    )
+
+    render(json: {
+      status: 'disconnected',
+      message: 'ยกเลิกการเชื่อมต่อ Stripe แล้ว คุณสามารถเชื่อมต่อใหม่ได้ทันที'
+    }, status: :ok)
   end
 
   def payout_history
