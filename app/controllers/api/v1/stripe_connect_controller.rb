@@ -23,8 +23,7 @@ class Api::V1::StripeConnectController < ::ApplicationController
       country: 'TH',
       email: @current_user.email,
       capabilities: {
-        transfers: { requested: true },
-        card_payments: { requested: true }
+        transfers: { requested: true }
       },
       business_type: 'individual',
       tos_acceptance: { service_agreement: 'recipient' }
