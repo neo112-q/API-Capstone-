@@ -14,7 +14,14 @@ class Api::V1::NovelsController < ::ApplicationController
 
   # ดูได้ทุกคนนะ
   def index()
-    novels = Novel.where(status: :published).order(updated_at: :desc).includes(:genres)
+    search_query = params[:search].presence
+
+    if search_query
+      novels = search_novels(search_query)
+    else
+      novels = Novel.where(status: :published).order(updated_at: :desc).includes(:genres)
+    end
+
     novel_ids = novels.map(&:id)
 
     likes_by_novel = ChapterLike.where(novel_id: novel_ids).group(:novel_id).count
@@ -23,7 +30,8 @@ class Api::V1::NovelsController < ::ApplicationController
     novels_with_views = novels.map do |novel|
       novel.as_json(include: :genres).merge(
         view_count: views_by_novel[novel.id] || 0,
-        like_count: likes_by_novel[novel.id] || 0
+        like_count: likes_by_novel[novel.id] || 0,
+        tags: novel.tags || []
       )
     end
 
@@ -227,6 +235,10 @@ class Api::V1::NovelsController < ::ApplicationController
 
     delete_cover_from_s3(novel) if image_cover?(novel.cover_path)
 
+    Thread.new do
+      CapstoneAiService.delete_novel(novel.id)
+    end
+
     render(json: { message: "Your novel has been deleted" }, status: :ok)
 
   rescue ActiveRecord::RecordNotFound
@@ -237,6 +249,23 @@ class Api::V1::NovelsController < ::ApplicationController
   end
 
   private
+
+  def search_novels(query)
+    capstone_results = CapstoneAiService.search_by_keyword(query, 20)
+    if capstone_results.any?
+      novel_ids = capstone_results.map { |r| r[:novel_id] }.uniq.first(20)
+      novels = Novel.where(id: novel_ids, status: :published).includes(:genres)
+      sorted = novels.sort_by { |n| novel_ids.index(n.id) }
+      return sorted if sorted.any?
+    end
+
+    # Fallback to ILIKE search
+    Novel.where(status: :published)
+         .where("title ILIKE :q OR pen_name ILIKE :q OR description ILIKE :q", q: "%#{query}%")
+         .order(updated_at: :desc)
+         .includes(:genres)
+         .limit(20)
+  end
 
   def novel_params()
     params.require(:novel).permit(:title, :description, :cover_path)

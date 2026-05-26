@@ -51,6 +51,10 @@ class Api::V1::ChaptersController < ::ApplicationController
       content = params[:content] || ""
       file_path = upload_to_s3(novel, chapter, content)
 
+      Thread.new do
+        CapstoneAiService.index_chapter(novel, chapter, content)
+      end
+
       render(json: {
         message: "บันทึกตอนใหม่ และอัปโหลดขึ้น S3 สำเร็จแล้ว",
         s3_path: file_path,
@@ -86,6 +90,9 @@ class Api::V1::ChaptersController < ::ApplicationController
 
     if params[:content].present?
       upload_to_s3(novel, chapter, params[:content])
+      Thread.new do
+        CapstoneAiService.index_chapter(novel, chapter, params[:content])
+      end
     end
 
     render(json: {
@@ -194,7 +201,11 @@ class Api::V1::ChaptersController < ::ApplicationController
 
     delete_from_s3(novel, chapter_to_delete)
     chapter_to_delete.destroy
-    
+
+    Thread.new do
+      CapstoneAiService.delete_chapter(novel.id, deleted_no)
+    end
+
     remaining_chapters = novel.chapters.where("chapter_no > ?", deleted_no).order(:chapter_no)
 
     remaining_chapters.each do |ch|

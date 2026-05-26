@@ -62,6 +62,9 @@ Rails.application.routes.draw do
         post("disconnect", to: "stripe_connect#disconnect")
       end
 
+      get("recommendations", to: "recommendations#index")
+      get("tags/popular", to: "tags#popular")
+
       get("images/*key", to: "images#show", format: false)
 
     end
