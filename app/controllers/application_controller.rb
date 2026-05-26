@@ -31,18 +31,29 @@ class ApplicationController < ActionController::API
   def transfer_author_revenue(author, amount)
     return if amount <= 0
 
-    if author.stripe_account_id.present? && author.stripe_charges_enabled
+    if author.stripe_account_id.present?
       begin
-        Stripe::Transfer.create({
-          amount: amount * 100,
-          currency: 'thb',
-          destination: author.stripe_account_id,
-          metadata: {
-            user_id: author.id,
-            coin_amount: amount
-          }
-        })
-        return
+        account = Stripe::Account.retrieve(author.stripe_account_id)
+        transfers_ready = account.details_submitted && account.capabilities&.transfers == 'active'
+        ready = transfers_ready || account.charges_enabled
+
+        if ready
+          Stripe::Transfer.create({
+            amount: amount * 100,
+            currency: 'thb',
+            destination: author.stripe_account_id,
+            metadata: {
+              user_id: author.id,
+              coin_amount: amount
+            }
+          })
+
+          unless author.stripe_charges_enabled
+            author.update_columns(stripe_charges_enabled: true)
+          end
+
+          return
+        end
       rescue Stripe::StripeError => e
         Rails.logger.warn "Auto-transfer to author #{author.id} failed: #{e.message}"
       end
