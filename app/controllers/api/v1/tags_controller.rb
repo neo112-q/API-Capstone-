@@ -8,8 +8,8 @@ class Api::V1::TagsController < ::ApplicationController
                 .group_by(&:itself)
                 .transform_values(&:count)
                 .sort_by { |_, v| -v }
-                .first(30)
-                .map(&:first)
+                .first(10)
+                .map { |name, count| { name: name, count: count } }
 
     render json: { tags: tags }
   end

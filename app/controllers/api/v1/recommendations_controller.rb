@@ -17,21 +17,26 @@ class Api::V1::RecommendationsController < ::ApplicationController
     seed_ids = collect_seed_novel_ids
     return popular_novels if seed_ids.empty?
 
-    similar_novels = []
+    scored = {}
 
     seed_ids.each do |novel_id|
-      results = CapstoneAiService.search_by_novel(novel_id, 5)
+      results = CapstoneAiService.search_by_novel(novel_id, 8)
       results.each do |r|
-        similar_novels << r[:novel_id] if r[:novel_id] != novel_id
+        next if r[:novel_id] == novel_id
+        next if r[:score].to_f < 0.65
+        key = r[:novel_id]
+        if !scored[key] || r[:score] > scored[key]
+          scored[key] = r[:score]
+        end
       end
     end
 
-    similar_novel_ids = similar_novels.uniq.first(12)
-    return popular_novels if similar_novel_ids.empty?
+    sorted_ids = scored.sort_by { |_, score| -score }.first(12).map(&:first)
+    return popular_novels if sorted_ids.empty?
 
-    Novel.where(id: similar_novel_ids, status: :published)
+    Novel.where(id: sorted_ids, status: :published)
          .includes(:genres)
-         .sort_by { |n| similar_novel_ids.index(n.id) }
+         .sort_by { |n| sorted_ids.index(n.id) }
   end
 
   def collect_seed_novel_ids
