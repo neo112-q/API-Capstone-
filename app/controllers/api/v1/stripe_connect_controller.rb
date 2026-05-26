@@ -207,6 +207,9 @@ class Api::V1::StripeConnectController < ::ApplicationController
   def clear_stripe_if_invalid(error)
     return unless error.is_a?(Stripe::PermissionError) || error.is_a?(Stripe::InvalidRequestError)
 
+    msg = error.message.downcase
+    return unless msg.include?('does not have access') || msg.include?('no such account') || msg.include?('does not exist')
+
     @current_user.update_columns(
       stripe_account_id: nil,
       stripe_charges_enabled: false
