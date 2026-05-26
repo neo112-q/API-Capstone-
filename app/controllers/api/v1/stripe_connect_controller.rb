@@ -21,7 +21,8 @@ class Api::V1::StripeConnectController < ::ApplicationController
                     transfers: { requested: true },
                     card_payments: { requested: true }
                   },
-                  business_type: 'individual'
+                  business_type: 'individual',
+                  tos_acceptance: { service_agreement: 'recipient' }
                 })
               end
 
