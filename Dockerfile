@@ -24,16 +24,15 @@ RUN apt-get update -qq && \
     apt-get install --no-install-recommends -y libjemalloc2 libvips42 postgresql-client nodejs npm && \
     ln -s /usr/lib/$(uname -m)-linux-gnu/libjemalloc.so.2 /usr/local/lib/libjemalloc.so && \
     rm -rf /var/lib/apt/lists /var/cache/apt/archives
-ARG CACHE_BUST=1
 
-ARG GITHUB_REPO_URL=https://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@github.com/neo112-q/API-Capstone.git
-ARG GITHUB_BRANCH=fix4
-
-RUN git clone -b ${GITHUB_BRANCH} ${GITHUB_REPO_URL} .
-
+# Copy Gemfiles first for better layer caching
+COPY Gemfile Gemfile.lock ./
 RUN bundle install && \
     rm -rf ~/.bundle/ "${BUNDLE_PATH}"/ruby/*/cache "${BUNDLE_PATH}"/ruby/*/bundler/gems/*/.git && \
     bundle exec bootsnap precompile -j 1 --gemfile
+
+# Copy the rest of the application
+COPY . .
 
 RUN bundle exec bootsnap precompile -j 1 app/ lib/
 
