@@ -31,7 +31,8 @@ class Api::V1::NovelsController < ::ApplicationController
       novel.as_json(include: :genres).merge(
         view_count: views_by_novel[novel.id] || 0,
         like_count: likes_by_novel[novel.id] || 0,
-        tags: novel.tags || []
+        tags: novel.tags || [],
+        language: novel.language
       )
     end
 
@@ -57,7 +58,11 @@ class Api::V1::NovelsController < ::ApplicationController
       per_chapter_price: params[:novel][:per_chapter_price] || 0,
       tags: params[:novel][:tags] || []
     )
-    
+
+    # Detect language from description and title
+    content_to_check = [params[:novel][:description], params[:novel][:title], Array(params[:novel][:tags]).join(" ")].join(" ")
+    novel.language = LanguageDetector.detect(content_to_check)
+
     if novel.save()
       # ✅ จัดการ cover (ทั้งรูปและอีโมจิ)
       if params[:cover_content].present?
@@ -131,8 +136,14 @@ class Api::V1::NovelsController < ::ApplicationController
       novel.cover_path = params[:cover_emoji]
     end
 
+    # Detect language when description, title, or tags change
+    if params[:novel][:description].present? || params[:novel][:title].present? || params[:novel][:tags].present?
+      content_to_check = [params[:novel][:description] || novel.description, params[:novel][:title] || novel.title, Array(params[:novel][:tags] || novel.tags).join(" ")].join(" ")
+      novel.language = LanguageDetector.detect(content_to_check)
+    end
+
     if novel.save()
-      render(json: novel.as_json(include: :genres).merge(tags: novel.tags), status: :ok)
+      render(json: novel.as_json(include: :genres).merge(tags: novel.tags, language: novel.language), status: :ok)
     else
       render(json: { errors: novel.errors.full_messages }, status: :unprocessable_entity)
     end
@@ -166,6 +177,7 @@ class Api::V1::NovelsController < ::ApplicationController
       description: novel.description,
       genres: novel.genres,
       tags: novel.tags || [],
+        language: novel.language,
       cover_path: cover_path_value,  
       view_count: novel.total_views(),
       like_count: total_likes,
@@ -178,7 +190,8 @@ class Api::V1::NovelsController < ::ApplicationController
       pricing_model: novel.pricing_model || 'free',
       early_access_days: novel.early_access_days || 7,
       per_chapter_price: novel.per_chapter_price || 0,
-      status: novel.status || 'draft' 
+      status: novel.status || 'draft',
+      language: novel.language
     }, status: :ok)
   end
 
@@ -205,7 +218,8 @@ class Api::V1::NovelsController < ::ApplicationController
           created_at: novel.created_at,
           updated_at: novel.updated_at,
           genres: novel.genres.as_json(only: [:id, :name]),
-          tags: novel.tags || []
+          tags: novel.tags || [],
+        language: novel.language
         }
       end
 

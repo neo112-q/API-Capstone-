@@ -82,7 +82,8 @@ class Api::V1::RecommendationsController < ::ApplicationController
       novel.as_json(include: :genres).merge(
         view_count: views_by_novel[novel.id] || 0,
         like_count: likes_by_novel[novel.id] || 0,
-        tags: novel.tags || []
+        tags: novel.tags || [],
+        language: novel.language
       )
     end
   end

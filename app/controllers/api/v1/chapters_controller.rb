@@ -179,7 +179,7 @@ class Api::V1::ChaptersController < ::ApplicationController
         )
 
         author = novel.user
-        author_revenue = (price_to_pay * 0.6).to_i
+        author_revenue = (price_to_pay * 0.6).round
         transfer_author_revenue(author, author_revenue) if author_revenue > 0
       else
         raise ActiveRecord::Rollback
