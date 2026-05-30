@@ -133,9 +133,18 @@ class Api::V1::NovelsController < ::ApplicationController
     end
 
     if novel.save()
-      # Refresh language from chapter titles + description on save
+      # Read ALL chapter content for language detection
       if novel.status.in?(['published', 'draft', 'writing'])
-        all_text = [novel.description, novel.title, novel.chapters.pluck(:title).join(' ')].join(' ')
+        all_contents = novel.chapters.order(:chapter_no).map do |ch|
+          begin
+            key = "novel_\#{novel.id}/chapter_\#{ch.id}.txt"
+            resp = @s3_client.get_object(bucket: @bucket_name, key: key)
+            resp.body.read.force_encoding('UTF-8')
+          rescue
+            ''
+          end
+        end
+        all_text = [novel.title, novel.description, all_contents].flatten.join(' ')
         detected = LanguageDetector.detect(all_text)
         novel.update_columns(language: detected) if detected
       end

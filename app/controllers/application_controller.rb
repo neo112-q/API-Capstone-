@@ -30,8 +30,26 @@ class ApplicationController < ActionController::API
 
   def transfer_author_revenue(author, amount)
     return if amount <= 0
+
+    # Always track earnings
     author.with_lock do
       author.update_columns(earnings_balance: author.earnings_balance + amount)
+    end
+
+    # Auto-transfer to author's Stripe account if connected
+    if author.stripe_account_id.present? && author.stripe_charges_enabled
+      begin
+        Stripe::Transfer.create({
+          amount: (amount * 100).to_i, # Convert THB to satang
+          currency: 'thb',
+          destination: author.stripe_account_id,
+          description: "Novel purchase revenue - #{amount} THB"
+        })
+        Rails.logger.info "Auto-transferred #{amount} THB to author ##{author.id}"
+      rescue Stripe::StripeError => e
+        Rails.logger.error "Auto-transfer failed for author ##{author.id}: #{e.message}"
+        # Money stays in earnings_balance for manual payout later
+      end
     end
   end
 
