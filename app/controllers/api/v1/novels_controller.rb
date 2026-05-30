@@ -56,7 +56,7 @@ class Api::V1::NovelsController < ::ApplicationController
       pricing_model: params[:novel][:pricing_model] || 'free',
       early_access_days: params[:novel][:early_access_days] || 7,
       per_chapter_price: params[:novel][:per_chapter_price] || 0,
-      tags: params[:novel][:tags] || []
+      tags: sanitize_tags(params[:novel][:tags])
     )
 
     if novel.save()
@@ -123,7 +123,7 @@ class Api::V1::NovelsController < ::ApplicationController
     end
 
     if params[:novel][:tags].present?
-      novel.tags = params[:novel][:tags]
+      novel.tags = sanitize_tags(params[:novel][:tags])
     end
 
     if params[:cover_content].present?
@@ -148,7 +148,7 @@ class Api::V1::NovelsController < ::ApplicationController
         detected = LanguageDetector.detect(all_text)
         novel.update_columns(language: detected) if detected
       end
-      render(json: novel.as_json(include: :genres).merge(tags: novel.tags, language: novel.language), status: :ok)
+      render(json: novel.as_json(include: :genres).merge(tags: sanitize_tags_for_response(novel.tags), language: novel.language), status: :ok)
     else
       render(json: { errors: novel.errors.full_messages }, status: :unprocessable_entity)
     end
@@ -294,6 +294,16 @@ class Api::V1::NovelsController < ::ApplicationController
     return [] unless genres_array.is_a?(Array)
     allowed_from_db = Genre.pluck(:name).map(&:downcase)
     genres_array.map(&:downcase).select { |g| allowed_from_db.include?(g) }
+  end
+
+  def sanitize_tags(tags_array)
+    return [] unless tags_array.is_a?(Array)
+    tags_array.map { |t| t.is_a?(Hash) ? (t['name'] || t[:name] || '').strip : t.to_s.strip }
+              .select { |t| t.present? }
+  end
+
+  def sanitize_tags_for_response(tags_array)
+    (tags_array || []).map { |t| t.is_a?(Hash) ? (t['name'] || t[:name]) : t }.compact
   end
   
   def set_s3_client()
