@@ -1,6 +1,6 @@
 class Api::V1::ChaptersController < ::ApplicationController
-  before_action :authorize_request, except: [:index, :show]
-  before_action -> { authorize_request(optional: true) }, only: [:show]
+  before_action :authorize_request, except: [:show]
+  before_action -> { authorize_request(optional: true) }, only: [:index, :show]
   before_action :set_s3_client
 
   # GET /api/v1/novels/:novel_id/chapters
@@ -49,8 +49,7 @@ class Api::V1::ChaptersController < ::ApplicationController
 
     if chapter.save()
       content = params[:content] || ""
-      file_path = upload_to_s3(novel, chapter, content)
-      chapter.update_columns(content_path: file_path)
+      upload_to_s3(novel, chapter, content)
 
       Thread.new do
         CapstoneAiService.index_chapter(novel, chapter, content)
