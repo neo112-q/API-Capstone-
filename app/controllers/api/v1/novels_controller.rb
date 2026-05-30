@@ -59,10 +59,6 @@ class Api::V1::NovelsController < ::ApplicationController
       tags: params[:novel][:tags] || []
     )
 
-    # Detect language from description and title
-    content_to_check = [params[:novel][:description], params[:novel][:title], Array(params[:novel][:tags]).join(" ")].join(" ")
-    novel.language = LanguageDetector.detect(content_to_check)
-
     if novel.save()
       # ✅ จัดการ cover (ทั้งรูปและอีโมจิ)
       if params[:cover_content].present?
@@ -136,13 +132,13 @@ class Api::V1::NovelsController < ::ApplicationController
       novel.cover_path = params[:cover_emoji]
     end
 
-    # Detect language when description, title, or tags change
-    if params[:novel][:description].present? || params[:novel][:title].present? || params[:novel][:tags].present?
-      content_to_check = [params[:novel][:description] || novel.description, params[:novel][:title] || novel.title, Array(params[:novel][:tags] || novel.tags).join(" ")].join(" ")
-      novel.language = LanguageDetector.detect(content_to_check)
-    end
-
     if novel.save()
+      # Refresh language from chapter titles + description on save
+      if novel.status.in?(['published', 'draft', 'writing'])
+        all_text = [novel.description, novel.title, novel.chapters.pluck(:title).join(' ')].join(' ')
+        detected = LanguageDetector.detect(all_text)
+        novel.update_columns(language: detected) if detected
+      end
       render(json: novel.as_json(include: :genres).merge(tags: novel.tags, language: novel.language), status: :ok)
     else
       render(json: { errors: novel.errors.full_messages }, status: :unprocessable_entity)

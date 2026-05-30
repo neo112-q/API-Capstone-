@@ -2,11 +2,10 @@ class LanguageDetector
   THAI_RANGE = (0x0E00..0x0E7F).freeze
 
   def self.detect(content)
-    return 'th' if content.blank?
+    return nil if content.blank?
 
-    # Strip HTML tags
     plain_text = content.to_s.gsub(/<[^>]*>/, '')
-    return 'th' if plain_text.blank?
+    return nil if plain_text.strip.blank?
 
     thai_count = 0
     eng_count = 0
@@ -20,19 +19,23 @@ class LanguageDetector
       end
     end
 
-    if thai_count > 0 && eng_count > 0
+    min_chars = 5
+    has_thai = thai_count >= min_chars
+    has_eng  = eng_count >= min_chars
+
+    if has_thai && has_eng
       'th-en'
-    elsif thai_count > 0
+    elsif has_thai
       'th'
-    elsif eng_count > 0
+    elsif has_eng
       'en'
     else
-      'th'
+      nil
     end
   end
 
-  def self.detect_from_chapters(chapters_content)
-    combined = Array(chapters_content).join(' ')
+  def self.detect_from_chapters(contents_array)
+    combined = Array(contents_array).join(' ')
     detect(combined)
   end
 end
