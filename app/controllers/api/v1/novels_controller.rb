@@ -31,7 +31,7 @@ class Api::V1::NovelsController < ::ApplicationController
       novel.as_json(include: :genres).merge(
         view_count: views_by_novel[novel.id] || 0,
         like_count: likes_by_novel[novel.id] || 0,
-        tags: novel.tags || [],
+        tags: (novel.tags || []).map { |t| t.is_a?(Hash) ? t['name'] || t[:name] : t }.compact,
         language: novel.language
       )
     end
@@ -181,7 +181,7 @@ class Api::V1::NovelsController < ::ApplicationController
       pen_name: novel.pen_name,
       description: novel.description,
       genres: novel.genres,
-      tags: novel.tags || [],
+      tags: (novel.tags || []).map { |t| t.is_a?(Hash) ? t['name'] || t[:name] : t }.compact,
         language: novel.language,
       cover_path: cover_path_value,  
       view_count: novel.total_views(),
@@ -223,7 +223,7 @@ class Api::V1::NovelsController < ::ApplicationController
           created_at: novel.created_at,
           updated_at: novel.updated_at,
           genres: novel.genres.as_json(only: [:id, :name]),
-          tags: novel.tags || [],
+          tags: (novel.tags || []).map { |t| t.is_a?(Hash) ? t['name'] || t[:name] : t }.compact,
         language: novel.language
         }
       end
