@@ -120,6 +120,16 @@ class Api::V1::PaymentsController < ::ApplicationController
           Rails.logger.info "✅ Added #{coin_amount} coins via PaymentIntent"
         end
       end
+
+      when 'account.application.deauthorized'
+        # User disconnected Stripe from their Stripe dashboard
+        stripe_account_id = event.account
+        user = User.find_by(stripe_account_id: stripe_account_id)
+        if user
+          user.update_columns(stripe_account_id: nil, stripe_charges_enabled: false)
+          Rails.logger.info "Stripe account #{stripe_account_id} deauthorized for user ##{user.id}"
+        end
+      end
       
       render(json: { status: 'success' }, status: :ok)
       

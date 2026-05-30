@@ -100,7 +100,7 @@ class Api::V1::ChaptersController < ::ApplicationController
       end
 
       # Detect language by combining current content with previous chapters
-      all_content = [content, novel.chapters.where.not(id: chapter.id).pluck(:title).join(' ')].join(' ')
+      all_content = [params[:content] || '', novel.chapters.where.not(id: chapter.id).pluck(:title).join(' ')].join(' ')
       detected = LanguageDetector.detect(all_content)
       novel.update_columns(language: detected) if detected
     end
