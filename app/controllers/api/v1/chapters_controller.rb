@@ -50,6 +50,7 @@ class Api::V1::ChaptersController < ::ApplicationController
     if chapter.save()
       content = params[:content] || ""
       file_path = upload_to_s3(novel, chapter, content)
+      chapter.update_columns(content_path: file_path)
 
       Thread.new do
         CapstoneAiService.index_chapter(novel, chapter, content)
@@ -94,7 +95,8 @@ class Api::V1::ChaptersController < ::ApplicationController
     chapter.update(updates)
 
     if params[:content].present?
-      upload_to_s3(novel, chapter, params[:content])
+      file_path = upload_to_s3(novel, chapter, params[:content])
+      chapter.update_columns(content_path: file_path)
       Thread.new do
         CapstoneAiService.index_chapter(novel, chapter, params[:content])
       end
