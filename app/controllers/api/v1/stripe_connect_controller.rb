@@ -23,7 +23,7 @@ class Api::V1::StripeConnectController < ::ApplicationController
 
     account ||= Stripe::Account.create({
       type: 'express',
-      country: 'US',
+      country: 'TH',
       email: @current_user.email,
       capabilities: {
         transfers: { requested: true }

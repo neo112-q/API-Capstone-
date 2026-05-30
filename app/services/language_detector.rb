@@ -1,14 +1,17 @@
 class LanguageDetector
   THAI_RANGE = (0x0E00..0x0E7F).freeze
+  THAI_RATIO_THRESHOLD = 0.15
+  ENG_RATIO_THRESHOLD  = 0.15
+  MIN_LINGUISTIC_CHARS = 10
 
   def self.detect(content)
     return nil if content.blank?
 
-    plain_text = content.to_s.gsub(/<[^>]*>/, '')
-    return nil if plain_text.strip.blank?
+    plain_text = content.to_s.gsub(/<[^>]*>/, '').strip
+    return nil if plain_text.blank?
 
     thai_count = 0
-    eng_count = 0
+    eng_count  = 0
 
     plain_text.each_char do |char|
       code = char.ord
@@ -19,9 +22,14 @@ class LanguageDetector
       end
     end
 
-    min_chars = 5
-    has_thai = thai_count >= min_chars
-    has_eng  = eng_count >= min_chars
+    total = thai_count + eng_count
+    return nil if total < MIN_LINGUISTIC_CHARS
+
+    thai_ratio = thai_count.to_f / total
+    eng_ratio  = eng_count.to_f  / total
+
+    has_thai = thai_ratio >= THAI_RATIO_THRESHOLD
+    has_eng  = eng_ratio  >= ENG_RATIO_THRESHOLD
 
     if has_thai && has_eng
       'th-en'

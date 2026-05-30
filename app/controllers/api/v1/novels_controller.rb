@@ -182,7 +182,7 @@ class Api::V1::NovelsController < ::ApplicationController
       description: novel.description,
       genres: novel.genres,
       tags: (novel.tags || []).map { |t| t.is_a?(Hash) ? t['name'] || t[:name] : t }.compact,
-        language: novel.language,
+      language: novel.language,
       cover_path: cover_path_value,  
       view_count: novel.total_views(),
       like_count: total_likes,
