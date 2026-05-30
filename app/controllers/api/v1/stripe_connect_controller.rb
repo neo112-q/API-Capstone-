@@ -23,7 +23,7 @@ class Api::V1::StripeConnectController < ::ApplicationController
 
     account ||= Stripe::Account.create({
       type: 'express',
-      country: 'TH',
+      country: 'US',
       email: @current_user.email,
       capabilities: {
         transfers: { requested: true }
@@ -129,18 +129,18 @@ class Api::V1::StripeConnectController < ::ApplicationController
       return render(json: { error: 'ยอดรายได้ของคุณไม่เพียงพอสำหรับการถอน', balance: @current_user.earnings_balance }, status: :unprocessable_entity)
     end
 
-    amount_thb = amount_coins
+    amount_usd = (amount_coins / 100.0).round(2)
 
     payout_record = @current_user.payouts.new(
       amount_coins: amount_coins,
-      amount_thb: amount_thb,
+      amount_usd: amount_usd,
       status: 'pending'
     )
 
     begin
       transfer = Stripe::Transfer.create({
-        amount: amount_thb * 100,
-        currency: 'thb',
+        amount: (amount_usd * 100).to_i,
+        currency: 'usd',
         destination: @current_user.stripe_account_id,
         metadata: {
           user_id: @current_user.id,
@@ -161,7 +161,7 @@ class Api::V1::StripeConnectController < ::ApplicationController
         amount: amount_coins,
         new_balance: @current_user.earnings_balance,
         transfer_id: transfer.id,
-        message: "ถอน #{amount_coins} เหรียญสำเร็จ (ประมาณ #{amount_thb} บาท) เงินจะเข้าบัญชีธนาคารของคุณภายใน 2-7 วันทำการ"
+        message: "ถอน #{amount_coins} เหรียญสำเร็จ (ประมาณ $#{amount_usd}) เงินจะเข้าบัญชีธนาคารของคุณภายใน 2-7 วันทำการ"
       }, status: :ok)
 
     rescue Stripe::StripeError => e
@@ -209,7 +209,7 @@ class Api::V1::StripeConnectController < ::ApplicationController
         {
           id: p.id,
           amount_coins: p.amount_coins,
-          amount_thb: p.amount_thb,
+          amount_usd: p.amount_usd,
           status: p.status,
           created_at: p.created_at,
           error_message: p.error_message

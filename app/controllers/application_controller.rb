@@ -40,12 +40,12 @@ class ApplicationController < ActionController::API
     if author.stripe_account_id.present? && author.stripe_charges_enabled
       begin
         Stripe::Transfer.create({
-          amount: (amount * 100).to_i, # Convert THB to satang
-          currency: 'thb',
+          amount: amount.to_i, # Convert coins to cents (1 coin = 1 cent, 100 coins = $1)
+          currency: 'usd',
           destination: author.stripe_account_id,
-          description: "Novel purchase revenue - #{amount} THB"
+          description: "Novel purchase revenue - #{amount} coins ($#{(amount / 100.0).round(2)})"
         })
-        Rails.logger.info "Auto-transferred #{amount} THB to author ##{author.id}"
+        Rails.logger.info "Auto-transferred #{amount} coins ($#{(amount / 100.0).round(2)}) to author ##{author.id}"
       rescue Stripe::StripeError => e
         Rails.logger.error "Auto-transfer failed for author ##{author.id}: #{e.message}"
         # Money stays in earnings_balance for manual payout later
