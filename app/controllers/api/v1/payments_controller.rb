@@ -119,7 +119,6 @@ class Api::V1::PaymentsController < ::ApplicationController
           user.update_columns(coin_balance: user.coin_balance + coin_amount)
           Rails.logger.info "✅ Added #{coin_amount} coins via PaymentIntent"
         end
-      end
 
       when 'account.application.deauthorized'
         # User disconnected Stripe from their Stripe dashboard
