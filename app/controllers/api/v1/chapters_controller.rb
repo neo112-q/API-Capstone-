@@ -14,11 +14,10 @@ class Api::V1::ChaptersController < ::ApplicationController
       has_unlocked = @current_user && UnlockedChapter.exists?(user: @current_user, novel_id: novel.id, chapter_no: ch.chapter_no)
       has_access = chapter_accessible?(novel, ch, is_owner, has_purchased_novel, has_unlocked)
 
-      {
+      entry = {
         id: ch.id,
         chapter_no: ch.chapter_no,
         title: ch.title,
-        content: has_access ? load_chapter_content(novel, ch) : "",
         view_count: ch.view_count,
         like_count: ch.likes_count,
         is_liked: @current_user ? ch.is_liked_by?(@current_user) : false,
@@ -26,6 +25,17 @@ class Api::V1::ChaptersController < ::ApplicationController
         free_date: ch.free_date&.iso8601,
         locked: !has_access
       }
+
+      if is_owner
+        # Owner sees draft content (if exists), plus draft status
+        entry[:content] = has_access ? load_chapter_content(novel, ch, is_owner: true) : ""
+        entry[:has_draft] = draft_exists?(novel, ch)
+        entry[:is_published] = novel.status == 'published'
+      else
+        entry[:content] = has_access ? load_chapter_content(novel, ch) : ""
+      end
+
+      entry
     end
 
     render(json: result)
@@ -36,9 +46,8 @@ class Api::V1::ChaptersController < ::ApplicationController
     novel = @current_user.novels.find(params[:novel_id])
 
     actual_price = params[:early_access_price].to_i > 0 ? params[:early_access_price] : params[:price]
-
-    # ✅ ใช้ normalize_free_date ที่ถูกต้อง
     free_date = normalize_free_date(params[:free_date])
+    is_draft = params[:draft].to_s == 'true'
 
     chapter = novel.chapters.build(
       chapter_no: params[:chapter_no],
@@ -49,21 +58,27 @@ class Api::V1::ChaptersController < ::ApplicationController
 
     if chapter.save()
       content = params[:content] || ""
-      s3_path = upload_to_s3(novel, chapter, content)
 
-      Thread.new do
-        CapstoneAiService.index_chapter(novel, chapter, content)
+      if is_draft
+        # Save to draft only — readers can still read old published version
+        upload_to_s3(novel, chapter, content, '_draft')
+      else
+        # Publish: write to both published and clear draft
+        upload_to_s3(novel, chapter, content)
+        delete_draft(novel, chapter)
+        Thread.new do
+          CapstoneAiService.index_chapter(novel, chapter, content)
+        end
+        # Detect language
+        all_content = [content, novel.chapters.where.not(chapter_no: chapter.chapter_no).pluck(:title).join(' ')].join(' ')
+        detected = LanguageDetector.detect(all_content)
+        novel.update_columns(language: detected) if detected
       end
 
-      # Detect language by combining current content with previous chapters
-      all_content = [content, novel.chapters.where.not(chapter_no: chapter.chapter_no).pluck(:title).join(' ')].join(' ')
-      detected = LanguageDetector.detect(all_content)
-      novel.update_columns(language: detected) if detected
-
       render(json: {
-        message: "บันทึกตอนใหม่ และอัปโหลดขึ้น S3 สำเร็จแล้ว",
-        s3_path: s3_path,
-        chapter: chapter.as_json.merge(free_date: chapter.free_date&.iso8601)
+        message: is_draft ? "บันทึกร่างตอนเรียบร้อย" : "บันทึกตอนใหม่ และอัปโหลดขึ้น S3 สำเร็จแล้ว",
+        chapter: chapter.as_json.merge(free_date: chapter.free_date&.iso8601),
+        is_draft: is_draft
       }, status: :created)
     else
       render(json: { errors: chapter.errors.full_messages }, status: :unprocessable_entity)
@@ -79,9 +94,8 @@ class Api::V1::ChaptersController < ::ApplicationController
 
     updates = {}
     updates[:title] = params[:title] if params.key?(:title)
-    
+
     if params.key?(:free_date)
-      # ✅ ใช้ normalize_free_date ที่ถูกต้อง
       updates[:free_date] = normalize_free_date(params[:free_date])
     end
 
@@ -94,15 +108,23 @@ class Api::V1::ChaptersController < ::ApplicationController
     chapter.update(updates)
 
     if params[:content].present?
-      upload_to_s3(novel, chapter, params[:content])
-      Thread.new do
-        CapstoneAiService.index_chapter(novel, chapter, params[:content])
-      end
+      is_draft = params[:draft].to_s == 'true'
 
-      # Detect language by combining current content with previous chapters
-      all_content = [params[:content] || '', novel.chapters.where.not(chapter_no: chapter.chapter_no).pluck(:title).join(' ')].join(' ')
-      detected = LanguageDetector.detect(all_content)
-      novel.update_columns(language: detected) if detected
+      if is_draft
+        # Save to draft only — reader still sees old published version
+        upload_to_s3(novel, chapter, params[:content], '_draft')
+      else
+        # Publish: write to published + clear draft
+        upload_to_s3(novel, chapter, params[:content])
+        delete_draft(novel, chapter)
+        Thread.new do
+          CapstoneAiService.index_chapter(novel, chapter, params[:content])
+        end
+        # Detect language
+        all_content = [params[:content] || '', novel.chapters.where.not(chapter_no: chapter.chapter_no).pluck(:title).join(' ')].join(' ')
+        detected = LanguageDetector.detect(all_content)
+        novel.update_columns(language: detected) if detected
+      end
     end
 
     render(json: {
@@ -125,8 +147,8 @@ class Api::V1::ChaptersController < ::ApplicationController
     has_access = chapter_accessible?(novel, chapter, is_owner, has_purchased_novel, has_unlocked)
 
     if has_access
-      record_chapter_view(chapter)
-      content = load_chapter_content(novel, chapter)
+      record_chapter_view(chapter) unless is_owner  # Don't count owner views
+      content = load_chapter_content(novel, chapter, is_owner: is_owner)
       like_count = ChapterLike.where(novel_id: novel.id, chapter_no: chapter.chapter_no).count
       is_liked = @current_user ? ChapterLike.exists?(user_id: @current_user.id, novel_id: novel.id, chapter_no: chapter.chapter_no) : false
 
@@ -138,7 +160,8 @@ class Api::V1::ChaptersController < ::ApplicationController
         is_liked: is_liked,
         locked: false,
         price: chapter.price || 0,
-        free_date: chapter.free_date&.iso8601
+        free_date: chapter.free_date&.iso8601,
+        has_draft: is_owner ? draft_exists?(novel, chapter) : false
       }, status: :ok)
     end
 
@@ -311,16 +334,38 @@ class Api::V1::ChaptersController < ::ApplicationController
     end
   end
 
-  def load_chapter_content(novel, chapter)
+  def load_chapter_content(novel, chapter, is_owner: false)
     object_key = "novel/#{novel.user_id}/#{novel.id}/#{chapter.chapter_no}.txt"
-    
+    draft_key  = "novel/#{novel.user_id}/#{novel.id}/#{chapter.chapter_no}_draft.txt"
+
     begin
-      content = @s3_client.get_object(bucket: @bucket_name, key: object_key).body.read
+      # Owner sees draft if it exists, otherwise published
+      if is_owner
+        content = @s3_client.get_object(bucket: @bucket_name, key: draft_key).body.read rescue nil
+        content ||= @s3_client.get_object(bucket: @bucket_name, key: object_key).body.read rescue ""
+      else
+        content = @s3_client.get_object(bucket: @bucket_name, key: object_key).body.read
+      end
     rescue Aws::S3::Errors::NoSuchKey
       content = ""
     end
-    
+
     content
+  end
+
+  def draft_exists?(novel, chapter)
+    draft_key = "novel/#{novel.user_id}/#{novel.id}/#{chapter.chapter_no}_draft.txt"
+    begin
+      @s3_client.head_object(bucket: @bucket_name, key: draft_key)
+      true
+    rescue Aws::S3::Errors::NoSuchKey, Aws::S3::Errors::NotFound
+      false
+    end
+  end
+
+  def delete_draft(novel, chapter)
+    draft_key = "novel/#{novel.user_id}/#{novel.id}/#{chapter.chapter_no}_draft.txt"
+    @s3_client.delete_object(bucket: @bucket_name, key: draft_key) rescue nil
   end
 
   def set_s3_client()
@@ -334,15 +379,13 @@ class Api::V1::ChaptersController < ::ApplicationController
     @bucket_name = "novels-bucket"
   end
 
-    # แก้ไข upload_to_s3
-  def upload_to_s3(novel, chapter, text_content)
+  def upload_to_s3(novel, chapter, text_content, suffix = '')
     begin
       @s3_client.create_bucket(bucket: @bucket_name)
     rescue Aws::S3::Errors::BucketAlreadyOwnedByYou, Aws::S3::Errors::BucketAlreadyExists
     end
 
-    # ✅ เปลี่ยนจาก @current_user.id เป็น novel.user_id
-    object_key = "novel/#{novel.user_id}/#{novel.id}/#{chapter.chapter_no}.txt"
+    object_key = "novel/#{novel.user_id}/#{novel.id}/#{chapter.chapter_no}#{suffix}.txt"
 
     @s3_client.put_object(
       bucket: @bucket_name,
@@ -353,24 +396,27 @@ class Api::V1::ChaptersController < ::ApplicationController
     return "/#{@bucket_name}/#{object_key}"
   end
 
-  # แก้ไข delete_from_s3
   def delete_from_s3(novel, chapter)
-    # ✅ เปลี่ยนจาก @current_user.id เป็น novel.user_id
-    object_key = "novel/#{novel.user_id}/#{novel.id}/#{chapter.chapter_no}.txt"
-    @s3_client.delete_object(bucket: @bucket_name, key: object_key)
+    base = "novel/#{novel.user_id}/#{novel.id}/#{chapter.chapter_no}"
+    @s3_client.delete_object(bucket: @bucket_name, key: "#{base}.txt") rescue nil
+    @s3_client.delete_object(bucket: @bucket_name, key: "#{base}_draft.txt") rescue nil
   end
 
-  # แก้ไข rename_s3_file
   def rename_s3_file(novel, old_no, new_no)
-    # ✅ เปลี่ยนจาก @current_user.id เป็น novel.user_id
-    old_key = "novel/#{novel.user_id}/#{novel.id}/#{old_no}.txt"
-    new_key = "novel/#{novel.user_id}/#{novel.id}/#{new_no}.txt"
+    base_old = "novel/#{novel.user_id}/#{novel.id}/#{old_no}"
+    base_new = "novel/#{novel.user_id}/#{novel.id}/#{new_no}"
 
-    @s3_client.copy_object(
-      bucket: @bucket_name,
-      copy_source: "#{@bucket_name}/#{old_key}",
-      key: new_key
-    )
-    @s3_client.delete_object(bucket: @bucket_name, key: old_key)
+    ['', '_draft'].each do |suffix|
+      begin
+        @s3_client.copy_object(
+          bucket: @bucket_name,
+          copy_source: "#{@bucket_name}/#{base_old}#{suffix}.txt",
+          key: "#{base_new}#{suffix}.txt"
+        )
+        @s3_client.delete_object(bucket: @bucket_name, key: "#{base_old}#{suffix}.txt")
+      rescue Aws::S3::Errors::NoSuchKey
+        # Skip if file doesn't exist
+      end
+    end
   end
 end
