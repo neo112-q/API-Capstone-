@@ -49,7 +49,7 @@ class Api::V1::ChaptersController < ::ApplicationController
 
     if chapter.save()
       content = params[:content] || ""
-      upload_to_s3(novel, chapter, content)
+      s3_path = upload_to_s3(novel, chapter, content)
 
       Thread.new do
         CapstoneAiService.index_chapter(novel, chapter, content)
@@ -62,7 +62,7 @@ class Api::V1::ChaptersController < ::ApplicationController
 
       render(json: {
         message: "บันทึกตอนใหม่ และอัปโหลดขึ้น S3 สำเร็จแล้ว",
-        s3_path: file_path,
+        s3_path: s3_path,
         chapter: chapter.as_json.merge(free_date: chapter.free_date&.iso8601)
       }, status: :created)
     else
