@@ -115,9 +115,8 @@ class Api::V1::ChaptersController < ::ApplicationController
 
       if is_draft
         # Save to draft only — reader still sees old published version
+        # Status does NOT change. S3 _draft.txt is the versioning.
         upload_to_s3(novel, chapter, params[:content], '_draft')
-        # If this was published, mark as writing (has unpublished changes)
-        chapter.update_columns(status: 'writing') if chapter.status == 'published'
       else
         # Publish: write to published + clear draft
         upload_to_s3(novel, chapter, params[:content])

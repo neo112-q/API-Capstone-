@@ -5,7 +5,7 @@ class Chapter < ApplicationRecord
 
   validates(:chapter_no, presence: true, numericality: { only_integer: true, greater_than: 0 })
   validates(:title, presence: true)
-  validates(:status, presence: true, inclusion: { in: %w[draft published writing] })
+  validates(:status, presence: true, inclusion: { in: %w[draft published] })
 
   validate(:must_be_sequential, on: :create, unless: :skip_sequential?)
 
