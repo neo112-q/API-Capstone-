@@ -6,9 +6,12 @@ class Api::V1::ChaptersController < ::ApplicationController
   # GET /api/v1/novels/:novel_id/chapters
   def index()
     novel = Novel.find(params[:novel_id])
-    chapters = novel.chapters.order(:chapter_no)
     is_owner = @current_user && novel.user_id == @current_user.id
     has_purchased_novel = @current_user && Purchase.exists?(user: @current_user, novel: novel)
+
+    base = novel.chapters.order(:chapter_no)
+    # Readers see only published chapters; owners see all
+    chapters = is_owner ? base : base.where(status: 'published')
 
     result = chapters.map do |ch|
       has_unlocked = @current_user && UnlockedChapter.exists?(user: @current_user, novel_id: novel.id, chapter_no: ch.chapter_no)
@@ -18,6 +21,7 @@ class Api::V1::ChaptersController < ::ApplicationController
         id: ch.id,
         chapter_no: ch.chapter_no,
         title: ch.title,
+        status: ch.status,
         view_count: ch.view_count,
         like_count: ch.likes_count,
         is_liked: @current_user ? ch.is_liked_by?(@current_user) : false,
@@ -27,10 +31,8 @@ class Api::V1::ChaptersController < ::ApplicationController
       }
 
       if is_owner
-        # Owner sees draft content (if exists), plus draft status
         entry[:content] = has_access ? load_chapter_content(novel, ch, is_owner: true) : ""
         entry[:has_draft] = draft_exists?(novel, ch)
-        entry[:is_published] = novel.status == 'published'
       else
         entry[:content] = has_access ? load_chapter_content(novel, ch) : ""
       end
@@ -53,7 +55,8 @@ class Api::V1::ChaptersController < ::ApplicationController
       chapter_no: params[:chapter_no],
       title: params[:title],
       price: actual_price || 0,
-      free_date: free_date
+      free_date: free_date,
+      status: is_draft ? 'draft' : 'published'
     )
 
     if chapter.save()
@@ -113,10 +116,13 @@ class Api::V1::ChaptersController < ::ApplicationController
       if is_draft
         # Save to draft only — reader still sees old published version
         upload_to_s3(novel, chapter, params[:content], '_draft')
+        # If this was published, mark as writing (has unpublished changes)
+        chapter.update_columns(status: 'writing') if chapter.status == 'published'
       else
         # Publish: write to published + clear draft
         upload_to_s3(novel, chapter, params[:content])
         delete_draft(novel, chapter)
+        chapter.update_columns(status: 'published')
         Thread.new do
           CapstoneAiService.index_chapter(novel, chapter, params[:content])
         end
@@ -129,7 +135,7 @@ class Api::V1::ChaptersController < ::ApplicationController
 
     render(json: {
       message: "อัปเดตตอนที่ #{chapter.chapter_no} เรียบร้อย!",
-      chapter: chapter.as_json.merge(free_date: chapter.free_date&.iso8601)
+      chapter: chapter.as_json.merge(free_date: chapter.free_date&.iso8601, status: chapter.reload.status)
     }, status: :ok)
 
   rescue ActiveRecord::RecordNotFound
