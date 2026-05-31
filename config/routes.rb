@@ -30,6 +30,7 @@ Rails.application.routes.draw do
           member do
             post("toggle_like", to: "likes#toggle")
             post("unlock", to: "chapters#unlock")
+            post("unpublish", to: "chapters#unpublish")
           end
         end
       end

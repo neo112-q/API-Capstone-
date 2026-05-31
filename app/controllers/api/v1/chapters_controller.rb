@@ -232,6 +232,19 @@ class Api::V1::ChaptersController < ::ApplicationController
     end
   end
 
+  # POST /api/v1/novels/:novel_id/chapters/:id/unpublish
+  def unpublish()
+    novel = @current_user.novels.find(params[:novel_id])
+    chapter = novel.chapters.find_by!(chapter_no: params[:id])
+
+    return render(json: { error: "ตอนนี้ยังไม่เคยเผยแพร่" }, status: :bad_request) unless chapter.status == 'published'
+
+    chapter.update_columns(status: 'draft')
+    render(json: { message: "ยกเลิกเผยแพร่ตอนที่ #{chapter.chapter_no} แล้ว", status: 'draft' }, status: :ok)
+  rescue ActiveRecord::RecordNotFound
+    render(json: { error: "ไม่พบตอนที่ระบุ" }, status: :not_found)
+  end
+
   # DELETE /api/v1/novels/:novel_id/chapters/:id
   def destroy()
     novel = @current_user.novels.find(params[:novel_id])
