@@ -15,6 +15,7 @@ Rails.application.routes.draw do
           get("my_novels", to: "novels#my_novels")
           get("genres", to: "novels#genres_list")
           get("following", to: "follows#index")
+          get("ai_search", to: "novels#ai_search")
         end
         
         member do

@@ -14,9 +14,25 @@ class Api::V1::NovelsController < ::ApplicationController
 
   # ดูได้ทุกคนนะ
   def index()
+    author_query = params[:author].presence
+    tag_query    = params[:tag].presence
     search_query = params[:search].presence
 
-    if search_query
+    if author_query
+      novels = Novel.where(status: :published)
+                    .where("pen_name ILIKE ?", "%#{author_query}%")
+                    .order(updated_at: :desc)
+                    .includes(:genres)
+                    .limit(20)
+    elsif tag_query
+      # PostgreSQL JSONB array query — tags stored as ["tag1","tag2"]
+      novels = Novel.where(status: :published)
+                    .where("tags IS NOT NULL")
+                    .where("EXISTS (SELECT 1 FROM jsonb_array_elements_text(tags::jsonb) AS t WHERE t ILIKE ?)", "%#{tag_query}%")
+                    .order(updated_at: :desc)
+                    .includes(:genres)
+                    .limit(20)
+    elsif search_query
       novels = search_novels(search_query)
     else
       novels = Novel.where(status: :published).order(updated_at: :desc).includes(:genres)
@@ -269,21 +285,41 @@ class Api::V1::NovelsController < ::ApplicationController
 
   private
 
+  # Pure database search — no AI. Fast, predictable, real-time.
   def search_novels(query)
-    capstone_results = CapstoneAiService.search_by_keyword(query, 20)
-    if capstone_results.any?
-      novel_ids = capstone_results.map { |r| r[:novel_id] }.uniq.first(20)
-      novels = Novel.where(id: novel_ids, status: :published).includes(:genres)
-      sorted = novels.sort_by { |n| novel_ids.index(n.id) }
-      return sorted if sorted.any?
-    end
-
-    # Fallback to ILIKE search
     Novel.where(status: :published)
          .where("title ILIKE :q OR pen_name ILIKE :q OR description ILIKE :q", q: "%#{query}%")
          .order(updated_at: :desc)
          .includes(:genres)
          .limit(20)
+  end
+
+  # AI-powered semantic search — separate endpoint, separate flow.
+  def ai_search()
+    q = params[:q].to_s.strip
+    return render(json: [], status: :ok) if q.length < 3
+
+    results = CapstoneAiService.search_by_keyword(q, 10)
+    return render(json: [], status: :ok) unless results.any?
+
+    novel_ids = results.map { |r| r[:novel_id] }.uniq.first(10)
+    novels = Novel.where(id: novel_ids, status: :published).includes(:genres)
+    sorted = novels.sort_by { |n| novel_ids.index(n.id) }
+
+    novel_ids_sorted = sorted.map(&:id)
+    likes_by_novel = ChapterLike.where(novel_id: novel_ids_sorted).group(:novel_id).count
+    views_by_novel = ChapterView.where(novel_id: novel_ids_sorted).group(:novel_id).count
+
+    result = sorted.map do |novel|
+      novel.as_json(include: :genres).merge(
+        view_count: views_by_novel[novel.id] || 0,
+        like_count: likes_by_novel[novel.id] || 0,
+        tags: (novel.tags || []).map { |t| t.is_a?(Hash) ? t['name'] || t[:name] : t }.compact,
+        language: novel.language
+      )
+    end
+
+    render(json: result, status: :ok)
   end
 
   def novel_params()
