@@ -25,10 +25,10 @@ class Api::V1::NovelsController < ::ApplicationController
                     .includes(:genres)
                     .limit(20)
     elsif tag_query
-      # PostgreSQL JSONB array query — tags stored as ["tag1","tag2"]
+      # PostgreSQL varchar[] array — use unnest() for native text arrays
       novels = Novel.where(status: :published)
                     .where("tags IS NOT NULL")
-                    .where("EXISTS (SELECT 1 FROM jsonb_array_elements_text(tags::jsonb) AS t WHERE t ILIKE ?)", "%#{tag_query}%")
+                    .where("EXISTS (SELECT 1 FROM unnest(tags) AS tag_text WHERE tag_text ILIKE ?)", "%#{tag_query}%")
                     .order(updated_at: :desc)
                     .includes(:genres)
                     .limit(20)
@@ -283,17 +283,6 @@ class Api::V1::NovelsController < ::ApplicationController
     render(json: { error: e.message }, status: :internal_server_error)
   end
 
-  private
-
-  # Pure database search — no AI. Fast, predictable, real-time.
-  def search_novels(query)
-    Novel.where(status: :published)
-         .where("title ILIKE :q OR pen_name ILIKE :q OR description ILIKE :q", q: "%#{query}%")
-         .order(updated_at: :desc)
-         .includes(:genres)
-         .limit(20)
-  end
-
   # AI-powered semantic search — separate endpoint, separate flow.
   def ai_search()
     q = params[:q].to_s.strip
@@ -320,6 +309,17 @@ class Api::V1::NovelsController < ::ApplicationController
     end
 
     render(json: result, status: :ok)
+  end
+
+  private
+
+  # Pure database search — no AI. Fast, predictable, real-time.
+  def search_novels(query)
+    Novel.where(status: :published)
+         .where("title ILIKE :q OR pen_name ILIKE :q OR description ILIKE :q", q: "%#{query}%")
+         .order(updated_at: :desc)
+         .includes(:genres)
+         .limit(20)
   end
 
   def novel_params()
