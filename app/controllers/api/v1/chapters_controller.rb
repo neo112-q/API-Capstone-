@@ -17,10 +17,13 @@ class Api::V1::ChaptersController < ::ApplicationController
       has_unlocked = @current_user && UnlockedChapter.exists?(user: @current_user, novel_id: novel.id, chapter_no: ch.chapter_no)
       has_access = chapter_accessible?(novel, ch, is_owner, has_purchased_novel, has_unlocked)
 
+      # Title versioning: readers see published_title (if exists), owners see draft title
+      display_title = is_owner ? ch.title : (ch.published_title.presence || ch.title)
+
       entry = {
         id: ch.id,
         chapter_no: ch.chapter_no,
-        title: ch.title,
+        title: display_title,
         status: ch.status,
         view_count: ch.view_count,
         like_count: ch.likes_count,
@@ -33,6 +36,7 @@ class Api::V1::ChaptersController < ::ApplicationController
       if is_owner
         entry[:content] = has_access ? load_chapter_content(novel, ch, is_owner: true) : ""
         entry[:has_draft] = draft_exists?(novel, ch)
+        entry[:draft_title] = ch.title  # current (possibly edited) title
       else
         entry[:content] = has_access ? load_chapter_content(novel, ch) : ""
       end
@@ -63,12 +67,13 @@ class Api::V1::ChaptersController < ::ApplicationController
       content = params[:content] || ""
 
       if is_draft
-        # Save to draft only — readers can still read old published version
+        # Save to draft only — readers still see old published version + old title
         upload_to_s3(novel, chapter, content, '_draft')
       else
-        # Publish: write to both published and clear draft
+        # Publish: write published file, set published_title, clear draft
         upload_to_s3(novel, chapter, content)
         delete_draft(novel, chapter)
+        chapter.update_columns(published_title: chapter.title)
         Thread.new do
           CapstoneAiService.index_chapter(novel, chapter, content)
         end
@@ -114,14 +119,14 @@ class Api::V1::ChaptersController < ::ApplicationController
       is_draft = params[:draft].to_s == 'true'
 
       if is_draft
-        # Save to draft only — reader still sees old published version
+        # Save to draft only — reader still sees old published version + old title
         # Status does NOT change. S3 _draft.txt is the versioning.
         upload_to_s3(novel, chapter, params[:content], '_draft')
       else
-        # Publish: write to published + clear draft
+        # Publish: write to published, set published_title, clear draft
         upload_to_s3(novel, chapter, params[:content])
         delete_draft(novel, chapter)
-        chapter.update_columns(status: 'published')
+        chapter.update_columns(status: 'published', published_title: chapter.title)
         Thread.new do
           CapstoneAiService.index_chapter(novel, chapter, params[:content])
         end
@@ -157,8 +162,11 @@ class Api::V1::ChaptersController < ::ApplicationController
       like_count = ChapterLike.where(novel_id: novel.id, chapter_no: chapter.chapter_no).count
       is_liked = @current_user ? ChapterLike.exists?(user_id: @current_user.id, novel_id: novel.id, chapter_no: chapter.chapter_no) : false
 
+      display_title = is_owner ? chapter.title : (chapter.published_title.presence || chapter.title)
+
       return render(json: {
         chapter: chapter,
+        title: display_title,
         content: content,
         view_count: chapter.view_count,
         like_count: like_count,
@@ -237,6 +245,13 @@ class Api::V1::ChaptersController < ::ApplicationController
     chapter = novel.chapters.find_by!(chapter_no: params[:id])
 
     return render(json: { error: "ตอนนี้ยังไม่เคยเผยแพร่" }, status: :bad_request) unless chapter.status == 'published'
+
+    # Must unpublish in reverse order — highest chapter_no first
+    higher_published = novel.chapters.where(status: 'published').where("chapter_no > ?", chapter.chapter_no)
+    if higher_published.exists?
+      max_no = higher_published.maximum(:chapter_no)
+      return render(json: { error: "ต้องเลิกเผยแพร่ตอนที่ #{max_no} ก่อน" }, status: :unprocessable_entity)
+    end
 
     chapter.update_columns(status: 'draft')
     render(json: { message: "ยกเลิกเผยแพร่ตอนที่ #{chapter.chapter_no} แล้ว", status: 'draft' }, status: :ok)
