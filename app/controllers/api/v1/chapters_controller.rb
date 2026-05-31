@@ -259,8 +259,6 @@ class Api::V1::ChaptersController < ::ApplicationController
     return true if is_owner || has_purchased_novel || has_unlocked
 
     case novel.pricing_model
-    when 'free'
-      true
     when 'one_time'
       false
     when 'per_chapter'
@@ -272,7 +270,8 @@ class Api::V1::ChaptersController < ::ApplicationController
         chapter.price.nil? || chapter.price.to_i == 0
       end
     else
-      chapter.price.nil? || chapter.price == 0
+      # 'free', nil, or unknown → allow access (matches DB default)
+      true
     end
   end
 
