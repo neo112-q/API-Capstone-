@@ -288,10 +288,10 @@ class Api::V1::NovelsController < ::ApplicationController
     q = params[:q].to_s.strip
     return render(json: [], status: :ok) if q.length < 3
 
-    results = CapstoneAiService.search_by_keyword(q, 10)
+    results = CapstoneAiService.search_by_keyword(q, 20)
     return render(json: [], status: :ok) unless results.any?
 
-    novel_ids = results.map { |r| r[:novel_id] }.uniq.first(10)
+    novel_ids = results.map { |r| r[:novel_id] }.uniq.first(20)
     novels = Novel.where(id: novel_ids, status: :published).includes(:genres)
     sorted = novels.sort_by { |n| novel_ids.index(n.id) }
 
