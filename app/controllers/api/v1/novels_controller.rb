@@ -323,7 +323,7 @@ class Api::V1::NovelsController < ::ApplicationController
   end
 
   def novel_params()
-    params.require(:novel).permit(:title, :description, :cover_path)
+    params.require(:novel).permit(:title, :description, :cover_path, tags: [])
   end
 
   def sanitize_genres(genres_array)

@@ -23,7 +23,6 @@ class Api::V1::PurchasesController < ::ApplicationController
       transfer_author_revenue(author, purchase.author_revenue)
     end
 
-    # ✅ reload ให้ได้ค่าล่าสุด
     @current_user.reload
 
     render(json: { 

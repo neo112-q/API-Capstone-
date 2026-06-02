@@ -402,6 +402,12 @@ class Api::V1::ChaptersController < ::ApplicationController
   end
 
   def set_s3_client()
+    endpoint = ENV.fetch('MINIO_ENDPOINT', 'http://minio:9000')
+    
+    if endpoint.include?("mynovel_minio")
+      endpoint = "http://host.docker.internal:9000"
+    end
+
     @s3_client = Aws::S3::Client.new(
       endpoint: ENV.fetch('MINIO_ENDPOINT', 'http://host.docker.internal:9000'),
       access_key_id: ENV.fetch('MINIO_ACCESS_KEY', 'admin'),

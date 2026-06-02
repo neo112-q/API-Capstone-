@@ -17,7 +17,7 @@ Rails.application.routes.draw do
           get("following", to: "follows#index")
           get("ai_search", to: "novels#ai_search")
         end
-        
+
         member do
           post("follow", to: "follows#create")
           delete("unfollow", to: "follows#destroy")
@@ -25,6 +25,7 @@ Rails.application.routes.draw do
 
         post("purchase", to: "purchases#create")
 
+        # ส่วนของchapters
         resources(:chapters, only: [:index, :create, :update, :destroy, :show]) do
           resources(:comments, only: [:index, :create, :destroy])
           member do
@@ -34,12 +35,12 @@ Rails.application.routes.draw do
           end
         end
       end
-      
+
       resources(:reading_histories, only: [:index, :create, :destroy])
-      
+
       get("user/liked_chapters", to: "users#liked_chapters")
       get("users/:user_id/unlocked_chapters", to: "users#unlocked_chapters")
-      
+
       scope(:user) do
         post("sign-up", to: "users#sign_up")
         post("sign-in", to: "users#sign_in")
@@ -48,11 +49,14 @@ Rails.application.routes.draw do
         get("profile", to: "users#profile")
         patch("profile", to: "users#update_profile")
         patch("password", to: "users#update_password")
-        
+
         post("topup/intent", to: "payments#create_intent")
         post("topup/create-checkout-session", to: "payments#create_checkout_session")
+
+        post("connect/onboarding", to: "payments#connect_onboarding")
       end
-      
+      post("payments/connect/create", to: "payments#create_connect_account")
+      get("payments/connect/status", to: "payments#check_connect_status")
       post("webhooks/stripe", to: "payments#stripe_webhook")
 
       scope(:stripe_connect) do
