@@ -1,3 +1,5 @@
+require 'base64'
+
 class Api::V1::NovelsController < ::ApplicationController
   # เรียก Token เฉพาะตอน C, U, D
   before_action(:authorize_request, only: [:create, :update, :destroy, :my_novels])
@@ -12,16 +14,44 @@ class Api::V1::NovelsController < ::ApplicationController
 
   # ดูได้ทุกคนนะ
   def index()
-    novels = Novel.where(status: :published).order(updated_at: :desc)
-    
+    author_query = params[:author].presence
+    tag_query    = params[:tag].presence
+    search_query = params[:search].presence
+
+    if author_query
+      novels = Novel.where(status: :published)
+                    .where("pen_name ILIKE ?", "%#{author_query}%")
+                    .order(updated_at: :desc)
+                    .includes(:genres)
+                    .limit(20)
+    elsif tag_query
+      # PostgreSQL varchar[] array — use unnest() for native text arrays
+      novels = Novel.where(status: :published)
+                    .where("tags IS NOT NULL")
+                    .where("EXISTS (SELECT 1 FROM unnest(tags) AS tag_text WHERE tag_text ILIKE ?)", "%#{tag_query}%")
+                    .order(updated_at: :desc)
+                    .includes(:genres)
+                    .limit(20)
+    elsif search_query
+      novels = search_novels(search_query)
+    else
+      novels = Novel.where(status: :published).order(updated_at: :desc).includes(:genres)
+    end
+
+    novel_ids = novels.map(&:id)
+
+    likes_by_novel = ChapterLike.where(novel_id: novel_ids).group(:novel_id).count
+    views_by_novel = ChapterView.where(novel_id: novel_ids).group(:novel_id).count
+
     novels_with_views = novels.map do |novel|
-      total_likes = ChapterLike.where(novel_id: novel.id).count
       novel.as_json(include: :genres).merge(
-        view_count: novel.total_views,
-        like_count: total_likes
+        view_count: views_by_novel[novel.id] || 0,
+        like_count: likes_by_novel[novel.id] || 0,
+        tags: (novel.tags || []).map { |t| t.is_a?(Hash) ? t['name'] || t[:name] : t }.compact,
+        language: novel.language
       )
     end
-    
+
     render(json: novels_with_views)
   end
 
@@ -42,16 +72,22 @@ class Api::V1::NovelsController < ::ApplicationController
       pricing_model: params[:novel][:pricing_model] || 'free',
       early_access_days: params[:novel][:early_access_days] || 7,
       per_chapter_price: params[:novel][:per_chapter_price] || 0,
-      tags: params[:novel][:tags] || []
+      tags: sanitize_tags(params[:novel][:tags])
     )
-    
+
     if novel.save()
+      # ✅ จัดการ cover (ทั้งรูปและอีโมจิ)
       if params[:cover_content].present?
         cover_url = upload_cover_to_s3(novel, params[:cover_content])
         novel.update_columns(cover_path: cover_url)
+        novel.reload
+      elsif params[:cover_emoji].present?
+        # ✅ ถ้าเป็นอีโมจิ ให้บันทึกเป็น string ตรงๆ
+        novel.update_columns(cover_path: params[:cover_emoji])
+        novel.reload
       end
 
-      render(json: novel, status: :created)
+      render(json: novel.as_json(only: [:id, :title, :cover_path, :tags]), status: :created)
     else
       render(json: { errors: novel.errors.full_messages }, status: :unprocessable_entity)
     end
@@ -61,12 +97,17 @@ class Api::V1::NovelsController < ::ApplicationController
   def update()
     novel = @current_user.novels.find(params[:id])
     
+    # อัปเดตข้อมูลพื้นฐาน
     if params[:novel][:title].present?
       novel.title = params[:novel][:title]
     end
     
     if params[:novel][:description].present?
       novel.description = params[:novel][:description]
+    end
+
+    if params[:novel][:pen_name].present?
+      novel.pen_name = params[:novel][:pen_name]
     end
     
     if params[:novel][:status].present?
@@ -97,17 +138,33 @@ class Api::V1::NovelsController < ::ApplicationController
       novel.per_chapter_price = params[:novel][:per_chapter_price]
     end
 
-    # ให้เพิ่ม tags ได้
     if params[:novel][:tags].present?
-      novel.tags = params[:novel][:tags]
+      novel.tags = sanitize_tags(params[:novel][:tags])
     end
 
     if params[:cover_content].present?
       novel.cover_path = upload_cover_to_s3(novel, params[:cover_content])
+    elsif params[:cover_emoji].present?
+      novel.cover_path = params[:cover_emoji]
     end
 
     if novel.save()
-      render(json: novel, include: :genres)
+      # Read ALL chapter content for language detection
+      if novel.status.in?(['published', 'draft', 'writing'])
+        all_contents = novel.chapters.order(:chapter_no).map do |ch|
+          begin
+            key = "novel_\#{novel.id}/chapter_\#{ch.id}.txt"
+            resp = @s3_client.get_object(bucket: @bucket_name, key: key)
+            resp.body.read.force_encoding('UTF-8')
+          rescue
+            ''
+          end
+        end
+        all_text = [novel.title, novel.description, all_contents].flatten.join(' ')
+        detected = LanguageDetector.detect(all_text)
+        novel.update_columns(language: detected) if detected
+      end
+      render(json: novel.as_json(include: :genres).merge(tags: sanitize_tags_for_response(novel.tags), language: novel.language), status: :ok)
     else
       render(json: { errors: novel.errors.full_messages }, status: :unprocessable_entity)
     end
@@ -126,13 +183,23 @@ class Api::V1::NovelsController < ::ApplicationController
 
     total_likes = ChapterLike.where(novel_id: novel.id).count
     
+    # ✅ จัดการ cover_path ให้ส่งกลับไป frontend ให้ถูกต้อง
+    cover_path_value = novel.cover_path
+    # ถ้า cover_path เป็นอีโมจิ (ความยาวน้อยกว่า 5 ตัว และไม่มี http หรือ /)
+    if cover_path_value.present? && cover_path_value.length <= 5 && !cover_path_value.include?('http') && !cover_path_value.include?('/')
+      # ส่งอีโมจิไปเลย
+      cover_path_value = cover_path_value
+    end
+    
     render(json: {
       id: novel.id,
       title: novel.title,
       pen_name: novel.pen_name,
       description: novel.description,
       genres: novel.genres,
-      cover_path: novel.cover_path,
+      tags: (novel.tags || []).map { |t| t.is_a?(Hash) ? t['name'] || t[:name] : t }.compact,
+      language: novel.language,
+      cover_path: cover_path_value,  
       view_count: novel.total_views(),
       like_count: total_likes,
       follow_count: novel.follows.count,
@@ -144,14 +211,20 @@ class Api::V1::NovelsController < ::ApplicationController
       pricing_model: novel.pricing_model || 'free',
       early_access_days: novel.early_access_days || 7,
       per_chapter_price: novel.per_chapter_price || 0,
-      tags: novel.tags || []
+      status: novel.status || 'draft',
+      language: novel.language
     }, status: :ok)
   end
 
   def my_novels()
     begin
-      novels = @current_user.novels.order(updated_at: :desc)
-      
+      novels = @current_user.novels.order(updated_at: :desc).includes(:genres)
+      novel_ids = novels.map(&:id)
+
+      likes_by_novel = ChapterLike.where(novel_id: novel_ids).group(:novel_id).count
+      views_by_novel = ChapterView.where(novel_id: novel_ids).group(:novel_id).count
+      chapter_counts = Chapter.where(novel_id: novel_ids).group(:novel_id).count
+
       result = novels.map do |novel|
         {
           id: novel.id,
@@ -160,16 +233,17 @@ class Api::V1::NovelsController < ::ApplicationController
           pen_name: novel.pen_name,
           cover_path: novel.cover_path,
           status: novel.status,
-          chapters_count: novel.chapters.count,
-          views: novel.total_views(),
-          likes: novel.likes.count,
+          chapters_count: chapter_counts[novel.id] || 0,
+          views: views_by_novel[novel.id] || 0,
+          likes: likes_by_novel[novel.id] || 0,
           created_at: novel.created_at,
           updated_at: novel.updated_at,
           genres: novel.genres.as_json(only: [:id, :name]),
-          tags: novel.tags || []
+          tags: (novel.tags || []).map { |t| t.is_a?(Hash) ? t['name'] || t[:name] : t }.compact,
+        language: novel.language
         }
       end
-      
+
       render(json: result, status: :ok)
     rescue => e
       puts "Error in my_novels: #{e.message}"
@@ -179,30 +253,29 @@ class Api::V1::NovelsController < ::ApplicationController
 
   def destroy()
     novel = @current_user.novels.find(params[:id])
-    
-    # transaction กับลบด้วย SQL ตรงเลย
+
     ActiveRecord::Base.transaction do
-      # ลบข้อมูลที่เกี่ยวข้องทั้งหมด
       UnlockedChapter.where(novel_id: novel.id).delete_all
       ChapterLike.where(novel_id: novel.id).delete_all
       ChapterView.where(novel_id: novel.id).delete_all
       ReadingHistory.where(novel_id: novel.id).delete_all
       Follow.where(novel_id: novel.id).delete_all
       Purchase.where(novel_id: novel.id).delete_all
+      Comment.where(novel_id: novel.id).delete_all
       NovelGenre.where(novel_id: novel.id).delete_all
-      
-      # ลบ chapters
       Chapter.where(novel_id: novel.id).delete_all
-      
-      # ลบ cover
-      delete_cover_from_s3(novel) if novel.cover_path.present?
-      
-      # ลบนิยาย
-      novel.destroy
+      Like.where(likeable_type: 'Novel', likeable_id: novel.id).delete_all
+      novel.destroy!
     end
-    
+
+    delete_cover_from_s3(novel) if image_cover?(novel.cover_path)
+
+    Thread.new do
+      CapstoneAiService.delete_novel(novel.id)
+    end
+
     render(json: { message: "Your novel has been deleted" }, status: :ok)
-    
+
   rescue ActiveRecord::RecordNotFound
     render(json: { error: "You don't have permission to delete this novel" }, status: :forbidden)
   rescue => e
@@ -210,7 +283,44 @@ class Api::V1::NovelsController < ::ApplicationController
     render(json: { error: e.message }, status: :internal_server_error)
   end
 
+  # AI-powered semantic search — separate endpoint, separate flow.
+  def ai_search()
+    q = params[:q].to_s.strip
+    return render(json: [], status: :ok) if q.length < 3
+
+    results = CapstoneAiService.search_by_keyword(q, 20)
+    return render(json: [], status: :ok) unless results.any?
+
+    novel_ids = results.map { |r| r[:novel_id] }.uniq.first(20)
+    novels = Novel.where(id: novel_ids, status: :published).includes(:genres)
+    sorted = novels.sort_by { |n| novel_ids.index(n.id) }
+
+    novel_ids_sorted = sorted.map(&:id)
+    likes_by_novel = ChapterLike.where(novel_id: novel_ids_sorted).group(:novel_id).count
+    views_by_novel = ChapterView.where(novel_id: novel_ids_sorted).group(:novel_id).count
+
+    result = sorted.map do |novel|
+      novel.as_json(include: :genres).merge(
+        view_count: views_by_novel[novel.id] || 0,
+        like_count: likes_by_novel[novel.id] || 0,
+        tags: (novel.tags || []).map { |t| t.is_a?(Hash) ? t['name'] || t[:name] : t }.compact,
+        language: novel.language
+      )
+    end
+
+    render(json: result, status: :ok)
+  end
+
   private
+
+  # Pure database search — no AI. Fast, predictable, real-time.
+  def search_novels(query)
+    Novel.where(status: :published)
+         .where("title ILIKE :q OR pen_name ILIKE :q OR description ILIKE :q", q: "%#{query}%")
+         .order(updated_at: :desc)
+         .includes(:genres)
+         .limit(20)
+  end
 
   def novel_params()
     params.require(:novel).permit(:title, :description, :cover_path, tags: [])
@@ -221,12 +331,22 @@ class Api::V1::NovelsController < ::ApplicationController
     allowed_from_db = Genre.pluck(:name).map(&:downcase)
     genres_array.map(&:downcase).select { |g| allowed_from_db.include?(g) }
   end
+
+  def sanitize_tags(tags_array)
+    return [] unless tags_array.is_a?(Array)
+    tags_array.map { |t| t.is_a?(Hash) ? (t['name'] || t[:name] || '').strip : t.to_s.strip }
+              .select { |t| t.present? }
+  end
+
+  def sanitize_tags_for_response(tags_array)
+    (tags_array || []).map { |t| t.is_a?(Hash) ? (t['name'] || t[:name]) : t }.compact
+  end
   
   def set_s3_client()
     @s3_client = Aws::S3::Client.new(
       endpoint: ENV.fetch('MINIO_ENDPOINT', 'http://host.docker.internal:9000'),
-      access_key_id: "admin_o",
-      secret_access_key: "password_o123",
+      access_key_id: ENV.fetch('MINIO_ACCESS_KEY', 'admin'),
+      secret_access_key: ENV.fetch('MINIO_SECRET_KEY', 'password123'),
       region: "us-east-1",
       force_path_style: true
     )
@@ -250,11 +370,20 @@ class Api::V1::NovelsController < ::ApplicationController
       content_disposition: "inline"
     )
 
-    return "http://localhost:9000/#{@bucket_name}/#{object_key}"
+    return "#{ENV.fetch('API_BASE_URL', 'http://naphon.ddns.net:3000')}/api/v1/images/#{object_key}"
   end
 
   def delete_cover_from_s3(novel)
-    object_key = "covers/#{novel.id}.png"
-    @s3_client.delete_object(bucket: @bucket_name, key: object_key)
+    return unless image_cover?(novel.cover_path)
+    begin
+      object_key = "covers/#{novel.id}.png"
+      @s3_client.delete_object(bucket: @bucket_name, key: object_key)
+    rescue => e
+      Rails.logger.error "S3 delete cover error: #{e.message}"
+    end
+  end
+
+  def image_cover?(path)
+    path.present? && (path.start_with?('http://', 'https://') || path.include?('/'))
   end
 end

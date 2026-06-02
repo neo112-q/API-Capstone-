@@ -3,7 +3,6 @@ class CreateNovels < ActiveRecord::Migration[8.1]
     create_table :novels do |t|
       t.string :title
       t.string :pen_name
-      t.string :status
       t.references :user, null: false, foreign_key: true
 
       t.timestamps

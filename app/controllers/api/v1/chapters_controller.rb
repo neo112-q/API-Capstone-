@@ -1,49 +1,92 @@
 class Api::V1::ChaptersController < ::ApplicationController
-  before_action :authorize_request, except: [:index]
-  before_action -> { authorize_request(optional: true) }, only: [:show]
+  before_action :authorize_request, except: [:index, :show]
+  before_action -> { authorize_request(optional: true) }, only: [:index, :show]
   before_action :set_s3_client
 
   # GET /api/v1/novels/:novel_id/chapters
-  # ดึงรายการตอนทั้งหมดของนิยายเรื่องหนึ่ง
   def index()
     novel = Novel.find(params[:novel_id])
-    chapters = novel.chapters.order(:chapter_no)
+    is_owner = @current_user && novel.user_id == @current_user.id
+    has_purchased_novel = @current_user && Purchase.exists?(user: @current_user, novel: novel)
+
+    base = novel.chapters.order(:chapter_no)
+    # Readers see only published chapters; owners see all
+    chapters = is_owner ? base : base.where(status: 'published')
 
     result = chapters.map do |ch|
-      {
+      has_unlocked = @current_user && UnlockedChapter.exists?(user: @current_user, novel_id: novel.id, chapter_no: ch.chapter_no)
+      has_access = chapter_accessible?(novel, ch, is_owner, has_purchased_novel, has_unlocked)
+
+      # Title versioning: readers see published_title (if exists), owners see draft title
+      display_title = is_owner ? ch.title : (ch.published_title.presence || ch.title)
+
+      entry = {
         id: ch.id,
         chapter_no: ch.chapter_no,
-        title: ch.title,
-        content: load_chapter_content(novel, ch),
+        title: display_title,
+        status: ch.status,
         view_count: ch.view_count,
         like_count: ch.likes_count,
         is_liked: @current_user ? ch.is_liked_by?(@current_user) : false,
-        price: ch.price || 0
+        price: ch.price || 0,
+        free_date: ch.free_date&.iso8601,
+        locked: !has_access
       }
+
+      if is_owner
+        entry[:content] = has_access ? load_chapter_content(novel, ch, is_owner: true) : ""
+        entry[:has_draft] = draft_exists?(novel, ch)
+        entry[:draft_title] = ch.title  # current (possibly edited) title
+      else
+        entry[:content] = has_access ? load_chapter_content(novel, ch) : ""
+      end
+
+      entry
     end
 
     render(json: result)
   end
 
   # POST /api/v1/novels/:novel_id/chapters
-  # สร้างตอนใหม่ พร้อมอัปโหลดเนื้อหาขึ้น S3
   def create()
     novel = @current_user.novels.find(params[:novel_id])
+
+    actual_price = params[:early_access_price].to_i > 0 ? params[:early_access_price] : params[:price]
+    free_date = normalize_free_date(params[:free_date])
+    is_draft = params[:draft].to_s == 'true'
 
     chapter = novel.chapters.build(
       chapter_no: params[:chapter_no],
       title: params[:title],
-      price: params[:price] || 0
+      price: actual_price || 0,
+      free_date: free_date,
+      status: is_draft ? 'draft' : 'published'
     )
 
     if chapter.save()
       content = params[:content] || ""
-      file_path = upload_to_s3(novel, chapter, content)
+
+      if is_draft
+        # Save to draft only — readers still see old published version + old title
+        upload_to_s3(novel, chapter, content, '_draft')
+      else
+        # Publish: write published file, set published_title, clear draft
+        upload_to_s3(novel, chapter, content)
+        delete_draft(novel, chapter)
+        chapter.update_columns(published_title: chapter.title)
+        Thread.new do
+          CapstoneAiService.index_chapter(novel, chapter, content)
+        end
+        # Detect language
+        all_content = [content, novel.chapters.where.not(chapter_no: chapter.chapter_no).pluck(:title).join(' ')].join(' ')
+        detected = LanguageDetector.detect(all_content)
+        novel.update_columns(language: detected) if detected
+      end
 
       render(json: {
-        message: "บันทึกตอนใหม่ และอัปโหลดขึ้น S3 สำเร็จแล้ว",
-        s3_path: file_path,
-        chapter: chapter
+        message: is_draft ? "บันทึกร่างตอนเรียบร้อย" : "บันทึกตอนใหม่ และอัปโหลดขึ้น S3 สำเร็จแล้ว",
+        chapter: chapter.as_json.merge(free_date: chapter.free_date&.iso8601),
+        is_draft: is_draft
       }, status: :created)
     else
       render(json: { errors: chapter.errors.full_messages }, status: :unprocessable_entity)
@@ -53,30 +96,50 @@ class Api::V1::ChaptersController < ::ApplicationController
   end
 
   # PATCH/PUT /api/v1/novels/:novel_id/chapters/:id
-  # แก้ไขชื่อตอน หรืออัปโหลดเนื้อหาใหม่
   def update()
     novel = @current_user.novels.find(params[:novel_id])
     chapter = novel.chapters.find_by!(chapter_no: params[:id])
 
-    if params[:title].present?
-      chapter.update(title: params[:title])
+    updates = {}
+    updates[:title] = params[:title] if params.key?(:title)
+
+    if params.key?(:free_date)
+      updates[:free_date] = normalize_free_date(params[:free_date])
     end
 
-    if params[:price].present?
-      chapter.update(price: params[:price])
+    if params.key?(:early_access_price) && params[:early_access_price].to_i > 0
+      updates[:price] = params[:early_access_price]
+    elsif params.key?(:price)
+      updates[:price] = params[:price]
     end
+
+    chapter.update(updates)
 
     if params[:content].present?
-      upload_to_s3(novel, chapter, params[:content])
-    end
+      is_draft = params[:draft].to_s == 'true'
 
-    if params[:free_date].present?
-      chapter.update(free_date: params[:free_date])
+      if is_draft
+        # Save to draft only — reader still sees old published version + old title
+        # Status does NOT change. S3 _draft.txt is the versioning.
+        upload_to_s3(novel, chapter, params[:content], '_draft')
+      else
+        # Publish: write to published, set published_title, clear draft
+        upload_to_s3(novel, chapter, params[:content])
+        delete_draft(novel, chapter)
+        chapter.update_columns(status: 'published', published_title: chapter.title)
+        Thread.new do
+          CapstoneAiService.index_chapter(novel, chapter, params[:content])
+        end
+        # Detect language
+        all_content = [params[:content] || '', novel.chapters.where.not(chapter_no: chapter.chapter_no).pluck(:title).join(' ')].join(' ')
+        detected = LanguageDetector.detect(all_content)
+        novel.update_columns(language: detected) if detected
+      end
     end
 
     render(json: {
       message: "อัปเดตตอนที่ #{chapter.chapter_no} เรียบร้อย!",
-      chapter: chapter
+      chapter: chapter.as_json.merge(free_date: chapter.free_date&.iso8601, status: chapter.reload.status)
     }, status: :ok)
 
   rescue ActiveRecord::RecordNotFound
@@ -84,88 +147,53 @@ class Api::V1::ChaptersController < ::ApplicationController
   end
 
   # GET /api/v1/novels/:novel_id/chapters/:id
-  # อ่านเนื้อหาตอน (เช็คสิทธิ์การเข้าถ่อน)
   def show()
     novel = Novel.find(params[:novel_id])
     chapter = novel.chapters.find_by!(chapter_no: params[:id])
-    
+
     is_owner = @current_user && novel.user_id == @current_user.id
     has_purchased_novel = @current_user && Purchase.exists?(user: @current_user, novel: novel)
     has_unlocked = @current_user && UnlockedChapter.exists?(user: @current_user, novel_id: novel.id, chapter_no: chapter.chapter_no)
-    
-    case novel.pricing_model
-    when 'free'
-      # อ่านได้ทุกตอนฟรี
-      is_free_chapter = true
-      
-    when 'one_time'
-      # ซื้อทั้งเล่ม: ถ้าซื้อแล้วหรือเป็นเจ้าของ อ่านได้
-      if is_owner || has_purchased_novel
-        is_free_chapter = true
-      else
-        is_free_chapter = false
-      end
-      
-    when 'per_chapter'
-      # ซื้อทีละตอน: ตอนที่ 1 ฟรีเสมอ, ตอนอื่นต้องปลดล็อค
-      if chapter.chapter_no == 1
-        is_free_chapter = true
-      else
-        is_free_chapter = has_unlocked
-      end
-      
-    when 'early_access'
-      # อ่านล่วงหน้า: เช็คว่าถึงวันปลดล็อคหรือยัง
-      if chapter.free_date.present? && Time.current >= chapter.free_date
-        is_free_chapter = true  # หมดเขต early access แล้ว อ่านฟรี
-      else
-        is_free_chapter = has_unlocked  # ยังอยู่ในช่วง early access ต้องจ่าย
-      end
-      
-    else
-      is_free_chapter = chapter.price.nil? || chapter.price == 0
-    end
-    
-    # เงื่อนไขการเข้าถึง
-    if is_owner || is_free_chapter || has_purchased_novel || has_unlocked
-      record_chapter_view(chapter)
-      content = load_chapter_content(novel, chapter)
+    has_access = chapter_accessible?(novel, chapter, is_owner, has_purchased_novel, has_unlocked)
+
+    if has_access
+      record_chapter_view(chapter) unless is_owner  # Don't count owner views
+      content = load_chapter_content(novel, chapter, is_owner: is_owner)
       like_count = ChapterLike.where(novel_id: novel.id, chapter_no: chapter.chapter_no).count
       is_liked = @current_user ? ChapterLike.exists?(user_id: @current_user.id, novel_id: novel.id, chapter_no: chapter.chapter_no) : false
 
-      return render(json: { 
-        chapter: chapter, 
+      display_title = is_owner ? chapter.title : (chapter.published_title.presence || chapter.title)
+
+      return render(json: {
+        chapter: chapter,
+        title: display_title,
         content: content,
         view_count: chapter.view_count,
         like_count: like_count,
         is_liked: is_liked,
         locked: false,
         price: chapter.price || 0,
-        free_date: chapter.free_date  # ส่งกลับไปด้วย
+        free_date: chapter.free_date&.iso8601,
+        has_draft: is_owner ? draft_exists?(novel, chapter) : false
       }, status: :ok)
     end
-    
-    # กรณีต้องจ่าย
-    if novel.pricing_model == 'one_time' && novel.price > 0 && !has_purchased_novel && !is_owner
-      return render(json: { 
-        locked: true, 
+
+    if novel.pricing_model == 'one_time' && novel.price > 0
+      return render(json: {
+        locked: true,
         requires_purchase: true,
         price: novel.price,
         message: "กรุณาซื้อนิยายก่อนราคา #{novel.price} เหรียญ"
       }, status: :payment_required)
     end
-    
-    if !is_free_chapter && !has_unlocked
-      price_to_show = novel.pricing_model == 'early_access' ? (chapter.price || novel.early_access_price) : chapter.price
-      return render(json: { 
-        locked: true, 
-        requires_purchase: false,
-        price: price_to_show || 0,
-        message: "ปลดล็อคตอนนี้ราคา #{price_to_show} เหรียญ"
-      }, status: :payment_required)
-    end
 
-    render(json: { error: "ไม่สามารถเข้าถึงตอนนี้ได้" }, status: :forbidden)
+    price_to_show = chapter.price || 0
+    render(json: {
+      locked: true,
+      requires_purchase: false,
+      price: price_to_show,
+      message: "ปลดล็อคตอนนี้ราคา #{price_to_show} เหรียญ"
+    }, status: :payment_required)
   end
 
   # POST /api/v1/novels/:novel_id/chapters/:id/unlock
@@ -173,7 +201,9 @@ class Api::V1::ChaptersController < ::ApplicationController
     novel = Novel.find(params[:novel_id])
     chapter = novel.chapters.find_by!(chapter_no: params[:id])
 
-    return render(json: { error: "ตอนนี้อ่านฟรี!" }, status: :bad_request) if !novel.is_premium || chapter.price == 0
+    price_to_pay = chapter.price || 0
+
+    return render(json: { error: "ตอนนี้อ่านฟรี!" }, status: :bad_request) if !novel.is_premium || price_to_pay == 0
     
     if UnlockedChapter.exists?(user_id: @current_user.id, novel_id: novel.id, chapter_no: chapter.chapter_no)
       return render(json: { error: "คุณปลดล็อคแล้ว!" }, status: :bad_request)
@@ -182,17 +212,21 @@ class Api::V1::ChaptersController < ::ApplicationController
     ActiveRecord::Base.transaction do
       @current_user.lock!
 
-      if @current_user.coin_balance >= chapter.price
-        @current_user.coin_balance -= chapter.price
+      if @current_user.coin_balance >= price_to_pay
+        @current_user.coin_balance -= price_to_pay
         @current_user.save!
 
-        # สร้างโดยใช้ novel_id และ chapter_no
         UnlockedChapter.create!(
           user_id: @current_user.id,
           novel_id: novel.id,
+          chapter_id: chapter.seq_id,
           chapter_no: chapter.chapter_no,
-          price_paid: chapter.price
+          price_paid: price_to_pay
         )
+
+        author = novel.user
+        author_revenue = (price_to_pay * 0.6).round
+        transfer_author_revenue(author, author_revenue) if author_revenue > 0
       else
         raise ActiveRecord::Rollback
       end
@@ -205,23 +239,41 @@ class Api::V1::ChaptersController < ::ApplicationController
     end
   end
 
+  # POST /api/v1/novels/:novel_id/chapters/:id/unpublish
+  def unpublish()
+    novel = @current_user.novels.find(params[:novel_id])
+    chapter = novel.chapters.find_by!(chapter_no: params[:id])
+
+    return render(json: { error: "ตอนนี้ยังไม่เคยเผยแพร่" }, status: :bad_request) unless chapter.status == 'published'
+
+    # Must unpublish in reverse order — highest chapter_no first
+    higher_published = novel.chapters.where(status: 'published').where("chapter_no > ?", chapter.chapter_no)
+    if higher_published.exists?
+      max_no = higher_published.maximum(:chapter_no)
+      return render(json: { error: "ต้องเลิกเผยแพร่ตอนที่ #{max_no} ก่อน" }, status: :unprocessable_entity)
+    end
+
+    chapter.update_columns(status: 'draft')
+    render(json: { message: "ยกเลิกเผยแพร่ตอนที่ #{chapter.chapter_no} แล้ว", status: 'draft' }, status: :ok)
+  rescue ActiveRecord::RecordNotFound
+    render(json: { error: "ไม่พบตอนที่ระบุ" }, status: :not_found)
+  end
+
   # DELETE /api/v1/novels/:novel_id/chapters/:id
-  # ลบตอน และขยับเลขตอนที่เหลือให้ถูกต้อง
   def destroy()
     novel = @current_user.novels.find(params[:novel_id])
     chapter_to_delete = novel.chapters.find_by!(chapter_no: params[:id])
     deleted_no = chapter_to_delete.chapter_no
 
-    # ลบไฟล์ใน S3 ก่อน
     delete_from_s3(novel, chapter_to_delete)
-    
-    # ลบข้อมูลใน Database
     chapter_to_delete.destroy
-    
-    # ดึงตอนทั้งหมดที่มีเลขมากกว่าตอนที่ลบ
+
+    Thread.new do
+      CapstoneAiService.delete_chapter(novel.id, deleted_no)
+    end
+
     remaining_chapters = novel.chapters.where("chapter_no > ?", deleted_no).order(:chapter_no)
 
-    # ขยับเลขตอนและrenameไฟล์ใน S3
     remaining_chapters.each do |ch|
       old_no = ch.chapter_no
       new_no = old_no - 1
@@ -237,7 +289,48 @@ class Api::V1::ChaptersController < ::ApplicationController
 
   private
 
-  # บันทึกสถิติการเข้าชม (ป้องกันการนับซ้ำ)
+  # ✅ เมธอด normalize วันที่ที่ถูกต้อง
+  def normalize_free_date(date_string)
+    return nil if date_string.blank?
+    
+    date_string = date_string.to_s.strip
+    
+    begin
+      # ✅ ใช้ Time.zone.parse เพื่อแปลง local time + timezone
+      # สมมติว่า frontend ส่ง local datetime มา (Asia/Bangkok)
+      Time.use_zone('Asia/Bangkok') do
+        parsed = Time.zone.parse(date_string)
+        return parsed if parsed.present?
+      end
+      
+      # fallback
+      Time.zone.parse(date_string)
+    rescue => e
+      Rails.logger.error "Error parsing date: #{date_string}, error: #{e.message}"
+      nil
+    end
+  end
+
+  def chapter_accessible?(novel, chapter, is_owner, has_purchased_novel, has_unlocked)
+    return true if is_owner || has_purchased_novel || has_unlocked
+
+    case novel.pricing_model
+    when 'one_time'
+      false
+    when 'per_chapter'
+      chapter.chapter_no == 1 && (chapter.price.nil? || chapter.price == 0)
+    when 'early_access'
+      if chapter.free_date.present?
+        Time.current >= chapter.free_date
+      else
+        chapter.price.nil? || chapter.price.to_i == 0
+      end
+    else
+      # 'free', nil, or unknown → allow access (matches DB default)
+      true
+    end
+  end
+
   def record_chapter_view(chapter)
     if @current_user
       existing = ChapterView.find_by(
@@ -274,19 +367,40 @@ class Api::V1::ChaptersController < ::ApplicationController
     end
   end
 
-  # โหลดเนื้อหาตอนจาก S3
-  def load_chapter_content(novel, chapter)
+  def load_chapter_content(novel, chapter, is_owner: false)
     object_key = "novel/#{novel.user_id}/#{novel.id}/#{chapter.chapter_no}.txt"
-    
+    draft_key  = "novel/#{novel.user_id}/#{novel.id}/#{chapter.chapter_no}_draft.txt"
+
     begin
-      @s3_client.get_object(bucket: @bucket_name, key: object_key).body.read()
-    rescue => e
-      Rails.logger.error("S3 Error: #{e.message}")
-      "" 
+      # Owner sees draft if it exists, otherwise published
+      if is_owner
+        content = @s3_client.get_object(bucket: @bucket_name, key: draft_key).body.read rescue nil
+        content ||= @s3_client.get_object(bucket: @bucket_name, key: object_key).body.read rescue ""
+      else
+        content = @s3_client.get_object(bucket: @bucket_name, key: object_key).body.read
+      end
+    rescue Aws::S3::Errors::NoSuchKey
+      content = ""
+    end
+
+    content
+  end
+
+  def draft_exists?(novel, chapter)
+    draft_key = "novel/#{novel.user_id}/#{novel.id}/#{chapter.chapter_no}_draft.txt"
+    begin
+      @s3_client.head_object(bucket: @bucket_name, key: draft_key)
+      true
+    rescue Aws::S3::Errors::NoSuchKey, Aws::S3::Errors::NotFound
+      false
     end
   end
 
-  # ตั้งค่า S3 Client (เชื่อมต่อ MinIO)
+  def delete_draft(novel, chapter)
+    draft_key = "novel/#{novel.user_id}/#{novel.id}/#{chapter.chapter_no}_draft.txt"
+    @s3_client.delete_object(bucket: @bucket_name, key: draft_key) rescue nil
+  end
+
   def set_s3_client()
     endpoint = ENV.fetch('MINIO_ENDPOINT', 'http://minio:9000')
     
@@ -295,23 +409,22 @@ class Api::V1::ChaptersController < ::ApplicationController
     end
 
     @s3_client = Aws::S3::Client.new(
-      endpoint: endpoint,
-      access_key_id: "admin_o",
-      secret_access_key: "password_o123",
+      endpoint: ENV.fetch('MINIO_ENDPOINT', 'http://host.docker.internal:9000'),
+      access_key_id: ENV.fetch('MINIO_ACCESS_KEY', 'admin'),
+      secret_access_key: ENV.fetch('MINIO_SECRET_KEY', 'password123'),
       region: "us-east-1",
       force_path_style: true
     )
     @bucket_name = "novels-bucket"
   end
 
-  # อัปโหลดเนื้อหาตอนขึ้น S3
-  def upload_to_s3(novel, chapter, text_content)
+  def upload_to_s3(novel, chapter, text_content, suffix = '')
     begin
       @s3_client.create_bucket(bucket: @bucket_name)
     rescue Aws::S3::Errors::BucketAlreadyOwnedByYou, Aws::S3::Errors::BucketAlreadyExists
     end
 
-    object_key = "novel/#{@current_user.id}/#{novel.id}/#{chapter.chapter_no}.txt"
+    object_key = "novel/#{novel.user_id}/#{novel.id}/#{chapter.chapter_no}#{suffix}.txt"
 
     @s3_client.put_object(
       bucket: @bucket_name,
@@ -322,24 +435,27 @@ class Api::V1::ChaptersController < ::ApplicationController
     return "/#{@bucket_name}/#{object_key}"
   end
 
-  # ลบไฟล์ตอนออกจาก S3
   def delete_from_s3(novel, chapter)
-    object_key = "novel/#{novel.user_id}/#{novel.id}/#{chapter.chapter_no}.txt"
-    @s3_client.delete_object(bucket: @bucket_name, key: object_key)
+    base = "novel/#{novel.user_id}/#{novel.id}/#{chapter.chapter_no}"
+    @s3_client.delete_object(bucket: @bucket_name, key: "#{base}.txt") rescue nil
+    @s3_client.delete_object(bucket: @bucket_name, key: "#{base}_draft.txt") rescue nil
   end
 
-  # เปลี่ยนชื่อไฟล์ใน S3 (ใช้ตอนขยับเลข章节)
   def rename_s3_file(novel, old_no, new_no)
-    old_key = "novel/#{novel.user_id}/#{novel.id}/#{old_no}.txt"
-    new_key = "novel/#{novel.user_id}/#{novel.id}/#{new_no}.txt"
+    base_old = "novel/#{novel.user_id}/#{novel.id}/#{old_no}"
+    base_new = "novel/#{novel.user_id}/#{novel.id}/#{new_no}"
 
-    # Copy ไฟล์เก่าไปชื่อใหม่
-    @s3_client.copy_object(
-      bucket: @bucket_name,
-      copy_source: "#{@bucket_name}/#{old_key}",
-      key: new_key
-    )
-    # ลบไฟล์เก่า
-    @s3_client.delete_object(bucket: @bucket_name, key: old_key)
+    ['', '_draft'].each do |suffix|
+      begin
+        @s3_client.copy_object(
+          bucket: @bucket_name,
+          copy_source: "#{@bucket_name}/#{base_old}#{suffix}.txt",
+          key: "#{base_new}#{suffix}.txt"
+        )
+        @s3_client.delete_object(bucket: @bucket_name, key: "#{base_old}#{suffix}.txt")
+      rescue Aws::S3::Errors::NoSuchKey
+        # Skip if file doesn't exist
+      end
+    end
   end
 end

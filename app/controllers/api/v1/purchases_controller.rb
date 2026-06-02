@@ -20,7 +20,7 @@ class Api::V1::PurchasesController < ::ApplicationController
       purchase.save!
       
       author = novel.user
-      author.update!(coin_balance: author.coin_balance + purchase.author_revenue)
+      transfer_author_revenue(author, purchase.author_revenue)
     end
 
     @current_user.reload

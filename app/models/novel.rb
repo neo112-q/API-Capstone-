@@ -3,10 +3,7 @@ class Novel < ApplicationRecord
   belongs_to(:user)
   
   # ✅ แก้ไข: ระบุ foreign_key และ primary_key ให้ชัดเจน
-  has_many(:chapters, 
-           foreign_key: :novel_id, 
-           primary_key: :id, 
-           dependent: :destroy)
+  has_many(:chapters, foreign_key: :novel_id, primary_key: :id, dependent: :destroy)
   
   has_many(:novel_genres, dependent: :destroy)
   has_many(:genres, through: :novel_genres)
@@ -16,22 +13,13 @@ class Novel < ApplicationRecord
   has_many(:purchases, dependent: :destroy)
   
   # ✅ เพิ่มความสัมพันธ์โดยตรงเพื่อให้ลบได้
-  has_many(:unlocked_chapters, 
-           foreign_key: :novel_id, 
-           primary_key: :id, 
-           dependent: :delete_all)
+  has_many(:unlocked_chapters, foreign_key: :novel_id, primary_key: :id, dependent: :delete_all)
   
-  has_many(:chapter_likes, 
-           foreign_key: :novel_id, 
-           primary_key: :id, 
-           dependent: :delete_all)
+  has_many(:chapter_likes, foreign_key: :novel_id, primary_key: :id, dependent: :delete_all)
   
-  has_many(:chapter_views, 
-           foreign_key: :novel_id, 
-           primary_key: :id, 
-           dependent: :delete_all)
-  
+  has_many(:chapter_views, foreign_key: :novel_id, primary_key: :id, dependent: :delete_all)
   has_many(:reading_histories, dependent: :delete_all)
+  has_many(:comments, dependent: :destroy)
 
   validates(:title, presence: true)
   validates(:pen_name, presence: true)

@@ -1,13 +1,21 @@
 Rails.application.routes.draw do
   namespace(:api) do
     namespace(:v1) do
-      post 'forgot_password', to: 'passwords#forgot'
-      post 'reset_password', to: 'passwords#reset'
+      
+      post("forgot_password", to: "passwords#forgot")
+      post("reset_password", to: "passwords#reset")
+
+      namespace :admin do
+        resources :users, only: [:index, :update, :destroy]
+        resources :novels, only: [:index, :update, :destroy] 
+      end
+      
       resources(:novels) do
         collection do
           get("my_novels", to: "novels#my_novels")
           get("genres", to: "novels#genres_list")
           get("following", to: "follows#index")
+          get("ai_search", to: "novels#ai_search")
         end
 
         member do
@@ -19,11 +27,11 @@ Rails.application.routes.draw do
 
         # ส่วนของchapters
         resources(:chapters, only: [:index, :create, :update, :destroy, :show]) do
-
           resources(:comments, only: [:index, :create, :destroy])
           member do
             post("toggle_like", to: "likes#toggle")
             post("unlock", to: "chapters#unlock")
+            post("unpublish", to: "chapters#unpublish")
           end
         end
       end
@@ -31,7 +39,6 @@ Rails.application.routes.draw do
       resources(:reading_histories, only: [:index, :create, :destroy])
 
       get("user/liked_chapters", to: "users#liked_chapters")
-
       get("users/:user_id/unlocked_chapters", to: "users#unlocked_chapters")
 
       scope(:user) do
@@ -51,6 +58,21 @@ Rails.application.routes.draw do
       post("payments/connect/create", to: "payments#create_connect_account")
       get("payments/connect/status", to: "payments#check_connect_status")
       post("webhooks/stripe", to: "payments#stripe_webhook")
+
+      scope(:stripe_connect) do
+        post("onboard", to: "stripe_connect#onboard")
+        get("status", to: "stripe_connect#status")
+        get("dashboard", to: "stripe_connect#dashboard")
+        post("payout", to: "stripe_connect#payout")
+        get("payouts", to: "stripe_connect#payout_history")
+        post("disconnect", to: "stripe_connect#disconnect")
+      end
+
+      get("recommendations", to: "recommendations#index")
+      get("tags/popular", to: "tags#popular")
+
+      get("images/*key", to: "images#show", format: false)
+
     end
   end
 end

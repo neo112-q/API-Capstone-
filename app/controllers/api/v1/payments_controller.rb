@@ -7,9 +7,9 @@ class Api::V1::PaymentsController < ::ApplicationController
     amount = params[:amount].to_i
     success_url = params[:success_url] || "#{request.base_url}/topup/success"
     cancel_url = params[:cancel_url] || "#{request.base_url}/topup"
-
-    if amount < 10
-      return render(json: { error: "จำนวนเงินขั้นต่ำ 10 บาท" }, status: :unprocessable_entity)
+    
+    if amount < 1
+      return render(json: { error: "Minimum top-up $1" }, status: :unprocessable_entity)
     end
 
     begin
@@ -17,13 +17,13 @@ class Api::V1::PaymentsController < ::ApplicationController
         payment_method_types: ['card'],
         line_items: [{
           price_data: {
-            currency: 'thb',
+            currency: 'usd',
             product_data: {
               name: 'เติมเหรียญสำหรับอ่านนิยาย',
-              description: "รับ #{amount} เหรียญ (1 บาท = 1 เหรียญ)",
-              images: ['https://your-domain.com/coin-icon.png']
+              description: "รับ #{amount * 100} เหรียญ (1 USD = 100 เหรียญ)",
+              images: ['https://your-domain.com/coin-icon.png'] # ใส่รูปถ้ามี
             },
-            unit_amount: amount * 100, #
+            unit_amount: amount * 100, # Stripe ใช้เซนต์ (USD * 100)
           },
           quantity: 1,
         }],
@@ -32,10 +32,10 @@ class Api::V1::PaymentsController < ::ApplicationController
         cancel_url: cancel_url,
         metadata: {
           user_id: @current_user.id,
-          coin_amount: amount,
+          coin_amount: amount * 100,
           type: 'topup'
         },
-        locale: 'th'
+        locale: 'en'
       })
 
       render(json: { url: session.url }, status: :ok)
@@ -51,22 +51,22 @@ class Api::V1::PaymentsController < ::ApplicationController
     coin_amount = params[:coin_amount].to_i
     return render(json: { error: "จำนวนเหรียญไม่ถูกต้อง" }, status: :unprocessable_entity) if coin_amount <= 0
 
-    total_price_thb = coin_amount.round(2)
+    total_price_usd = (coin_amount / 100.0).round(2)
 
     begin
       intent = Stripe::PaymentIntent.create({
-        amount: (total_price_thb * 100).to_i,
-        currency: "thb",
-        metadata: { 
-          user_id: @current_user.id, 
+        amount: (total_price_usd * 100).to_i,
+        currency: "usd",
+        metadata: {
+          user_id: @current_user.id,
           coin_amount: coin_amount,
           fee_added: "0%"
         }
       })
 
-      render(json: { 
+      render(json: {
         client_secret: intent.client_secret,
-        total_to_pay: total_price_thb,
+        total_to_pay: total_price_usd,
         coins_to_receive: coin_amount
       }, status: :ok)
 
@@ -117,6 +117,15 @@ class Api::V1::PaymentsController < ::ApplicationController
         if user
           user.update_columns(coin_balance: user.coin_balance + coin_amount)
           Rails.logger.info("✅ Added #{coin_amount} coins via PaymentIntent")
+        end
+
+      when 'account.application.deauthorized'
+        # User disconnected Stripe from their Stripe dashboard
+        stripe_account_id = event.account
+        user = User.find_by(stripe_account_id: stripe_account_id)
+        if user
+          user.update_columns(stripe_account_id: nil, stripe_charges_enabled: false)
+          Rails.logger.info "Stripe account #{stripe_account_id} deauthorized for user ##{user.id}"
         end
       end
 

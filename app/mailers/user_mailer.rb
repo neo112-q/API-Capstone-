@@ -1,6 +1,4 @@
 class UserMailer < ApplicationMailer
-  default from: ENV.fetch('GMAIL_USERNAME', 'noreply@mynovel.com')
-
   def forgot_password(user)
     @user = user
     @otp = user.reset_password_token
